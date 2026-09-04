@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>هوای ایران</title>
+<meta name="description" content="نقشه‌ی زنده‌ی بارش و ابر ایران، بر پایه‌ی سه مدل عددی مستقل">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🌧️</text></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand"><span class="brand-icon">🌧️</span><h1>هوای ایران</h1></div>
+
+  <nav id="city-chips" aria-label="شهرهای ذخیره‌شده"></nav>
+
+  <div class="topbar-actions">
+    <button id="btn-refresh" class="icon-btn" title="تازه‌سازی داده" aria-label="تازه‌سازی">⟳</button>
+  </div>
+</header>
+
+<main id="layout">
+
+  <section id="map-wrap">
+    <div id="map"></div>
+
+    <div id="map-controls">
+      <div class="seg" role="group" aria-label="لایه‌ی نقشه">
+        <button class="seg-btn is-active" data-layer="precip">بارش</button>
+        <button class="seg-btn" data-layer="cloud">ابر</button>
+        <button class="seg-btn" data-layer="none">خاموش</button>
+      </div>
+      <div id="legend" aria-hidden="true"></div>
+    </div>
+
+    <div id="map-hint">روی هر نقطه از نقشه بزن تا هوایش را ببینی</div>
+  </section>
+
+  <aside id="panel" aria-live="polite">
+    <div id="panel-inner">
+      <div class="skeleton-block" id="boot-skeleton">
+        <div class="sk sk-lg"></div><div class="sk"></div><div class="sk"></div>
+      </div>
+    </div>
+  </aside>
+
+</main>
+
+<footer id="timebar">
+  <button id="btn-play" class="icon-btn play" aria-label="پخش انیمیشن">▶</button>
+  <input id="time-slider" type="range" min="0" max="71" value="0" step="1" aria-label="زمان پیش‌بینی">
+  <div id="time-label"><span class="t-main">—</span><span class="t-sub"></span></div>
+</footer>
+
+<div id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
