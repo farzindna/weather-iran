@@ -312,46 +312,49 @@ function parseQuery(text) {
   if (!startDate) {
     if (/یک\s*ماه|ماه\s*آینده|۳۰\s*روز|ماه\s*بعد/i.test(norm)) {
       isMonthlyRequest = true;
-      startDate = new Date(now);
-      endDate = new Date(now.getTime() + 29 * 24 * 3600 * 1000);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 29);
     } else if (/دو\s*هفته|۱۴\s*روز|۲\s*هفته/i.test(norm)) {
-      startDate = new Date(now);
-      endDate = new Date(now.getTime() + 14 * 24 * 3600 * 1000);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14);
     } else if (/۱۰\s*روز|ده\s*روز/i.test(norm)) {
-      startDate = new Date(now);
-      endDate = new Date(now.getTime() + 9 * 24 * 3600 * 1000);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 9);
     } else if (/هفته\s*(آینده|بعد)/i.test(norm)) {
-      // شنبه آینده تا جمعه بعدی
       const daysUntilNextSat = (6 - now.getDay() + 7) % 7 || 7;
-      startDate = new Date(now.getTime() + daysUntilNextSat * 24 * 3600 * 1000);
-      endDate = new Date(startDate.getTime() + 6 * 24 * 3600 * 1000);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilNextSat);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilNextSat + 6);
     } else if (/آخر\s*هفته|پنجشنبه|جمعه/i.test(norm)) {
-      // پنج‌شنبه و جمعه پیش‌رو
       const day = now.getDay(); // 0=Sun, 4=Thu, 5=Fri
       const daysUntilThu = (4 - day + 7) % 7;
-      startDate = new Date(now.getTime() + daysUntilThu * 24 * 3600 * 1000);
-      endDate = new Date(startDate.getTime() + 1 * 24 * 3600 * 1000); // Thu & Fri
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilThu);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilThu + 1);
     } else if (/پس\s*فردا/i.test(norm)) {
-      startDate = new Date(now.getTime() + 2 * 24 * 3600 * 1000);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
       endDate = new Date(startDate);
     } else if (/فردا/i.test(norm)) {
-      startDate = new Date(now.getTime() + 1 * 24 * 3600 * 1000);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       endDate = new Date(startDate);
     } else if (/امروز/i.test(norm)) {
-      startDate = new Date(now);
-      endDate = new Date(now);
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate = new Date(startDate);
     } else {
-      // حالت پیش‌فرض: از امروز تا ۳ روز آینده
-      startDate = new Date(now);
-      endDate = new Date(now.getTime() + 3 * 24 * 3600 * 1000);
+      // حالت پیش‌فرض: امروز تا ۳ روز آینده
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
     }
   }
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDaysFromToday = Math.round((endDate - todayStart) / (24 * 3600 * 1000));
+  const isLongRange = diffDaysFromToday >= 16 || isMonthlyRequest;
 
   return {
     city: targetCity,
     startDate,
     endDate,
     isMonthlyRequest,
+    isLongRange,
     userIntent,
     rawText: norm
   };
@@ -386,14 +389,25 @@ function getWmoInfo(code) {
   return WMO_CODES[code] || { desc: 'هوای متغیر', icon: '🌤️' };
 }
 
+function toIsoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 async function fetchWeatherData(lat, lon, startDate, endDate) {
   const now = new Date();
-  // محاسبه تفاوت روز شروع با امروز
-  const diffDaysStart = Math.floor((startDate - now) / (24 * 3600 * 1000));
-  const diffDaysEnd = Math.floor((endDate - now) / (24 * 3600 * 1000));
+  const startIso = toIsoDate(startDate);
+  const endIso = toIsoDate(endDate);
+  const todayIso = toIsoDate(now);
 
-  // اگر بازه در محدوده ۱۶ روز آینده باشد، از Forecast API با مدل‌های زنده استفاده می‌کنیم
-  if (diffDaysEnd < 16 && diffDaysStart >= -1) {
+  // محاسبه دقیق تفاوت روزها با امروز
+  const diffDaysEnd = Math.round((new Date(endIso) - new Date(todayIso)) / (24 * 3600 * 1000));
+  const diffDaysStart = Math.round((new Date(startIso) - new Date(todayIso)) / (24 * 3600 * 1000));
+
+  // اگر بازه در محدوده ۱۶ روز آینده باشد، حتماً از Forecast API با مدل‌های زنده استفاده می‌کنیم
+  if (diffDaysEnd < 16 && diffDaysStart >= 0) {
     try {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,windspeed_10m_max&forecast_days=16&timezone=auto`;
       const res = await fetch(url);
@@ -404,13 +418,14 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
       const days = [];
 
       for (let i = 0; i < daily.time.length; i++) {
-        const dObj = new Date(daily.time[i] + 'T00:00:00');
-        // آیا این روز در بازه انتخابی کاربر هست؟
-        if (dObj >= new Date(startDate.toDateString()) && dObj <= new Date(endDate.toDateString())) {
+        const timeIso = daily.time[i];
+        // مقایسه مستقیم و بدون خطای تایم‌زون
+        if (timeIso >= startIso && timeIso <= endIso) {
+          const dObj = new Date(timeIso + 'T00:00:00');
           const wmo = getWmoInfo(daily.weathercode[i]);
           days.push({
             date: dObj,
-            iso: daily.time[i],
+            iso: timeIso,
             jalali: getJalaliDateStr(dObj),
             maxTemp: Math.round(daily.temperature_2m_max[i]),
             minTemp: Math.round(daily.temperature_2m_min[i]),
@@ -424,11 +439,13 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
         }
       }
 
-      return {
-        type: 'exact',
-        days,
-        source: 'مدل‌های ترکیبی جهانی (ECMWF / GFS)'
-      };
+      if (days.length > 0) {
+        return {
+          type: 'exact',
+          days,
+          source: 'مدل‌های ترکیبی جهانی (ECMWF / GFS)'
+        };
+      }
     } catch (e) {
       console.warn('Forecast API fetch failed, falling back:', e);
     }
@@ -537,8 +554,8 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     }
   }
 
-  // توضیح در مورد مدل پیش‌بینی به زبان خودمونی
-  if (!isExact) {
+  // توضیح در مورد مدل پیش‌بینی به زبان خودمونی (فقط وقتی واقعاً بازه فراتر از ۱۶ روز باشد)
+  if (!isExact && parsed.isLongRange) {
     summaryText += `\n\n*(💡 راستی چون این تاریخ بیشتر از ۱۶ روز دیگه است، مدل‌های ساعتی قطعی هنوز فعال نشدن؛ واسه همین این پیش‌بینی رو بر اساس میانگین هوای همین روزها تو سال‌های اخیر برات درآوردم — دقیقاً مثل کاری که اکیوودر می‌کنه!)*`;
   }
 
@@ -729,13 +746,13 @@ function renderWelcomeMessage() {
         <div class="welcome-desc">
           دیگه لازم نیست با نقشه‌های شلوغ و لایه‌های گنگ سر و کله بزنی! هر شهری رو با هر تاریخی که می‌خوای بهم بگو؛ از فردا تا ماه آینده، خودم می‌پرم از ماهواره‌ها چک می‌کنم و بهت می‌گم بارون میاد، چتر لازمه یا هوا سرده.
         </div>
-        <div class="chips-title">چند تا نمونه برای تست (فقط روشون بزن):</div>
+        <div class="chips-title">پرسش‌های سریع و آماده (فقط روشون بزن):</div>
         <div class="chips-grid">
-          <button class="chip-btn" data-query="۵ تا ۹ مهر چالوس چطوره؟ بارونیه؟">🌧️ ۵ تا ۹ مهر چالوس بارونیه؟</button>
+          <button class="chip-btn" data-query="هوای امروز تهران چطوره؟">☀️ امروز تهران چطوره؟</button>
           <button class="chip-btn" data-query="فردا تهران بارون میاد؟">☔ فردا تهران بارون میاد؟</button>
-          <button class="chip-btn" data-query="آخر هفته رامسر هوا چطوره؟">🏖️ آخر هفته رامسر چطوره؟</button>
-          <button class="chip-btn" data-query="وضع هوای شیراز در یک ماه آینده">📅 شیراز تو ماه آینده</button>
-          <button class="chip-btn" data-query="دمای تبریز تا آخر این هفته">❄️ دمای تبریز تا آخر هفته</button>
+          <button class="chip-btn" data-query="پس‌فردا چالوس بارون داریم؟">🏖️ پس‌فردا چالوس بارونیه؟</button>
+          <button class="chip-btn" data-query="آخر هفته تبریز سرده؟">❄️ آخر هفته تبریز سرده؟</button>
+          <button class="chip-btn" data-query="فردا مشهد هوا چطوره؟">🌤️ فردا مشهد چطوره؟</button>
         </div>
       </div>
     </div>
