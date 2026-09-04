@@ -180,14 +180,32 @@ const NUMBER_WORDS = {
   'بیست و هفتم': 27, '۲۷': 27, '27': 27,
   'بیست و هشتم': 28, '۲۸': 28, '28': 28,
   'بیست و نهم': 29, '۲۹': 29, '29': 29,
-  'سی ام': 30, 'سی‌ام': 30, '۳۰': 30, '30': 30,
-  'سی و یکم': 31, '۳۱': 31, '31': 31
+  'سی ام': 30,  'سی و یکم': 31, '۳۱': 31, '31': 31
 };
 
 function parseQuery(text) {
   const norm = text.replace(/[\u064B-\u065F]/g, '').trim(); // Remove Arabic diacritics
   const now = new Date();
   const currentJalali = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+
+  // 0. تشخیص قصد‌های عمومی مکالمه (احوال‌پرسی، تشکر، هویت، موضوعات بی‌ربط)
+  const isGreeting = /^(سلام|درود|سلام علیکم|چطوری|خوبی|حالت چطوره|صبح بخیر|شب بخیر|عصر بخیر|چه خبر|چخبر|سلامت باشی|hi|hello|hey)[\s!؟?.]*$/i.test(norm);
+  if (isGreeting) {
+    return { type: 'greeting', rawText: norm };
+  }
+
+  const isThanks = /^(مرسی|ممنون|دستت درد نکنه|دمت گرم|تشکر|خیلی ممنون|سپاس|عشقی|نوکرتم|عالی بود)[\s!؟?.]*$/i.test(norm);
+  if (isThanks) {
+    return { type: 'thanks', rawText: norm };
+  }
+
+  const isIdentity = /(تو کی هستی|اسمت چیه|چیکار میتونی بکنی|خودتو معرفی کن|چه کارهایی بلدی|چیکاره ای)/i.test(norm);
+  if (isIdentity) {
+    return { type: 'identity', rawText: norm };
+  }
+
+  const hasWeatherKeywords = /بارون|باران|بارش|چتر|خیس|رگبار|برف|سرد|گرم|دما|درجه|خنک|یخ|طوفان|باد|ابر|ابری|آفتاب|آفتابی|مه|مه‌آلود|هوا|آب\s*و\s*هوا/i.test(norm);
+  const isClearlyIrrelevant = /دلار|سکه|طلا|ارز|بیت\s*کوین|فوتبال|استقلال|پرسپولیس|رونالدو|مسی|غذا|شام|ناهار|فیلم|آهنگ|موسیقی|برنامه\s*نویسی|پزشک|دکتر|دارو|جوک|لطیفه|سیاست|اخبار\s*روز/i.test(norm);
 
   let targetCity = null;
   let startDate = null;
@@ -216,6 +234,20 @@ function parseQuery(text) {
         targetCity = candidate;
       }
     }
+  }
+
+  // اگر سوال نه به آب‌وهوا ربط داشت، نه اسم شهری داشت و نه کلمه‌ی هوایی:
+  if (!targetCity && !hasWeatherKeywords) {
+    return { type: 'irrelevant', rawText: norm };
+  }
+
+  if (isClearlyIrrelevant && !hasWeatherKeywords) {
+    return { type: 'irrelevant', rawText: norm };
+  }
+
+  // اگر سوال هواشناسی پرسیده ولی اسمی از هیچ شهری نبرده (مثلا: فردا بارون میاد؟)
+  if (!targetCity && hasWeatherKeywords) {
+    return { type: 'missing_city', userIntent, rawText: norm };
   }
 
   // 2. بررسی بازه‌های تاریخی معین شمسی (مانند: ۵ تا ۹ مهر، یا پنجم تا نهم مهر، یا ۱۰ آبان)
@@ -554,6 +586,12 @@ function generateAssistantResponse(parsed, weatherResult, location) {
 
   cardsHtml += `
       </div>
+      <div class="weather-audit-bar">
+        <span class="audit-badge">🛡️ مدل محاسباتی ${weatherResult.source}</span>
+        <a href="https://open-meteo.com/en/docs#latitude=${location.lat}&longitude=${location.lon}" target="_blank" rel="noopener" class="audit-link" title="مشاهده داکیومنت و داده‌های خام بدون واسطه">
+          🔍 راست‌آزمایی و مشاهده داده‌های خام ماهواره‌ای
+        </a>
+      </div>
     </div>
   `;
 
@@ -728,18 +766,70 @@ async function handleUserSubmit(queryText) {
     // 1. پردازش زبان طبیعی کوئری
     const parsed = parseQuery(text);
 
-    // 2. تعیین شهر
+    // پاسخ به احوال‌پرسی
+    if (parsed.type === 'greeting') {
+      appendAssistantMessage({
+        text: 'سلام فرزین عزیز! 👋 روزت به‌خیر و پر از حس خوب.\nمن اینجام تا هر سوالی درباره آب‌وهوای هر نقطه‌ای از ایران داری (از فردا تا یک ماه آینده) رو دقیق و شفاف برات دربیارم. هوای کدوم شهر مد نظرته؟',
+        cardsHtml: '',
+        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'فردا تهران بارون میاد؟', 'آخر هفته رامسر هوا چطوره؟']
+      });
+      btnSend.disabled = false;
+      return;
+    }
+
+    // پاسخ به تشکر
+    if (parsed.type === 'thanks') {
+      appendAssistantMessage({
+        text: 'خواهش می‌کنم رفیق، خوشحالم که به دردت خورد! ❤️ هر وقت برنامه سفر یا کاری داشتی، فقط اسم شهر و تاریخشو بهم بگو تا چک کنم.',
+        cardsHtml: '',
+        suggestions: ['هوای امروز تهران', 'آخر هفته شمال بارونیه؟', 'یک ماه آینده چالوس']
+      });
+      btnSend.disabled = false;
+      return;
+    }
+
+    // معرفی هویت
+    if (parsed.type === 'identity') {
+      appendAssistantMessage({
+        text: 'من دستیار هوای ایرانم! 🌤️\nکارم اینه که سوالاتت رو به زبون ساده و فارسی بخونم، برم از معتبرترین سازمان‌های جوی دنیا (ECMWF اروپا و GFS آمریکا) آمار واقعی بارش و دما رو بگیرم و بدون هیچ حدس و توهمی، وضعیت واقعی هوا رو بهت بگم.',
+        cardsHtml: '',
+        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'وضع هوای شیراز در ماه آینده', 'هوای تهران']
+      });
+      btnSend.disabled = false;
+      return;
+    }
+
+    // سوال‌های متفرقه و خارج از حوزه آب‌وهوا
+    if (parsed.type === 'irrelevant') {
+      appendAssistantMessage({
+        text: 'راستش من تخصصم فقط و فقط آب‌وهوا و پیش‌بینی باران و دماست! 😄\nدر مورد این موضوع اطلاعی ندارم، ولی اگه خواستی بدونی فردا هوا چطوره، چتر لازمه یا جاده‌ها برفیه، در خدمتم! 🌦️',
+        cardsHtml: '',
+        suggestions: ['فردا تهران بارون میاد؟', '۵ تا ۹ مهر چالوس چطوره؟', 'آخر هفته اصفهان']
+      });
+      btnSend.disabled = false;
+      return;
+    }
+
+    // سوال هواشناسی بدون اسم شهر
+    if (parsed.type === 'missing_city') {
+      appendAssistantMessage({
+        text: 'می‌خوای هوای کدوم شهر رو بدونی؟ لطفاً اسم شهر رو هم در پیامت بنویس (مثلاً: **فردا تهران بارون میاد؟** یا **هوای اصفهان تا آخر هفته**) تا دقیق برات چک کنم.',
+        cardsHtml: '',
+        suggestions: ['فردا تهران بارون میاد؟', '۵ تا ۹ مهر چالوس', 'آخر هفته مشهد']
+      });
+      btnSend.disabled = false;
+      return;
+    }
+
+    // 2. تعیین شهر برای سوالات معتبر آب‌وهوا
     let loc = null;
     if (parsed.city) {
       loc = await resolveLocation(parsed.city);
-    } else {
-      // اگر شهری در متن مشخص نبود، پیش‌فرض را روی تهران بگذار یا بپرس
-      loc = await resolveLocation('تهران');
     }
 
     if (!loc) {
       appendAssistantMessage({
-        text: `متوجه نشدم منظورت دقیقاً کدوم شهره! لطفاً اسم شهر (مثلاً چالوس، رشت، تهران...) رو هم در پیامت بنویس.`,
+        text: `متوجه نشدم منظورت کدوم شهره! لطفاً اسم شهر (مثلاً چالوس، رشت، تهران...) رو هم بنویس تا مختصاتش رو برات پیدا کنم.`,
         cardsHtml: '',
         suggestions: ['۵ تا ۹ مهر چالوس', 'هوای فردا تهران', 'آخر هفته اصفهان']
       });
