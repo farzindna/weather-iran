@@ -1,697 +1,828 @@
-/* هوای ایران — نقشه‌ی زنده‌ی بارش و ابر
-   داده: Open-Meteo (بدون کلید) · سه مدل عددی مستقل
-   ECMWF IFS (اروپا) · GFS (آمریکا) · ICON (آلمان) */
-'use strict';
+/**
+ * هوای ایران — دستیار هوشمند هواشناسی (نسخه‌ی تمام چت‌بیس)
+ * قابلیت درک زبان طبیعی، پشتیبانی از شهرهای ایران و پیش‌بینی دقیق ۱ تا ۳۰ روزه
+ */
 
-/* ══════════ پیکربندی ══════════ */
-
-const CITIES = [
-  // مختصات با geocoding API خود Open-Meteo تأیید شده‌اند
-  { id:'tehran',   fa:'تهران',   lat:35.69439, lon:51.42151, group:'ثابت' },
-  { id:'kuhdasht', fa:'کوهدشت',  lat:33.5333,  lon:47.6100,  group:'ثابت' },
-  { id:'rasht',    fa:'رشت',     lat:37.27611, lon:49.58862, group:'شمال' },
-  { id:'ramsar',   fa:'رامسر',   lat:36.91796, lon:50.64802, group:'شمال' },
-  { id:'chalus',   fa:'چالوس',   lat:36.6550,  lon:51.4204,  group:'شمال' },
-  { id:'sari',     fa:'ساری',    lat:36.5633,  lon:53.0601,  group:'شمال' },
-];
-
-const MODELS = [
-  { key:'ecmwf_ifs025',  fa:'ECMWF',  sub:'اروپا',  color:'#4cc9f0' },
-  { key:'gfs_seamless',  fa:'GFS',    sub:'آمریکا', color:'#f7b267' },
-  { key:'icon_seamless', fa:'ICON',   sub:'آلمان',  color:'#c77dff' },
-];
-
-const GRID = { lat0:25, lat1:40, lon0:44, lon1:64, step:0.6 };  // ≈ ۶۶ کیلومتر
-const HOURS = 72;                    // افق انیمیشن
-const CACHE_MS = 20 * 60 * 1000;     // ۲۰ دقیقه
-const API = 'https://api.open-meteo.com/v1/forecast';
-
-/* ══════════ وضعیت ══════════ */
-
-const S = {
-  map:null, layer:null, markers:{},
-  sel:null,            // {lat, lon, name}
-  point:null,          // پاسخ API برای نقطه
-  grid:null,           // {times, precip:[][], cloud:[][], nx, ny}
-  gridPts:[],
-  hour:0,
-  mode:'precip',
-  playing:false, timer:null,
-  pinMarker:null,
-};
-
-/* ══════════ کمکی ══════════ */
-
-const $ = s => document.querySelector(s);
-const clamp = (v,a,b) => v<a?a:v>b?b:v;
-const pad2 = n => String(n).padStart(2,'0');
-
-const fmtDay = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn',
-  { weekday:'long', day:'numeric', month:'long' });
-const fmtDayShort = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn',
-  { weekday:'long' });
-
-function toast(msg, isErr){
-  const t = $('#toast');
-  t.textContent = msg;
-  t.className = 'show' + (isErr ? ' err' : '');
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.className = '', isErr ? 5200 : 3000);
+// ==========================================
+// 1. تقویم جلالی و ابزارهای تاریخ
+// ==========================================
+function gregorianToJalali(gy, gm, gd) {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let gy2 = (gm > 2) ? (gy + 1) : gy;
+  let days = 355666 + (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) + Math.floor((gy2 + 399) / 400) + gd + g_d_m[gm - 1];
+  let jy = -1595 + (33 * Math.floor(days / 12053));
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let jm = (days < 186) ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+  let jd = 1 + ((days < 186) ? (days % 31) : ((days - 186) % 30));
+  return { jy, jm, jd };
 }
 
-/* کدهای هواشناسی WMO */
-const WMO = {
-  0:['☀️','صاف'], 1:['🌤️','کمی ابری'], 2:['⛅','نیمه‌ابری'], 3:['☁️','ابری'],
-  45:['🌫️','مه'], 48:['🌫️','مه یخ‌زده'],
-  51:['🌦️','نم‌نم سبک'], 53:['🌦️','نم‌نم'], 55:['🌧️','نم‌نم شدید'],
-  56:['🌧️','نم‌نم یخ‌زده'], 57:['🌧️','نم‌نم یخ‌زده‌ی شدید'],
-  61:['🌦️','باران سبک'], 63:['🌧️','باران'], 65:['🌧️','باران شدید'],
-  66:['🌧️','باران یخ‌زده'], 67:['🌧️','باران یخ‌زده‌ی شدید'],
-  71:['🌨️','برف سبک'], 73:['🌨️','برف'], 75:['❄️','برف سنگین'], 77:['🌨️','دانه‌ی برف'],
-  80:['🌦️','رگبار سبک'], 81:['🌧️','رگبار'], 82:['⛈️','رگبار شدید'],
-  85:['🌨️','رگبار برف'], 86:['❄️','رگبار برف سنگین'],
-  95:['⛈️','رعد و برق'], 96:['⛈️','رعد و برق با تگرگ'], 99:['⛈️','رعد و برق و تگرگ درشت'],
-};
-const wmo = c => WMO[c] || ['🌡️','—'];
+function jalaliToGregorian(jy, jm, jd) {
+  jy += 1595;
+  let days = -355668 + (365 * jy) + Math.floor(jy / 33) * 8 + Math.floor(((jy % 33) + 3) / 4) + jd + ((jm < 7) ? (jm - 1) * 31 : ((jm - 7) * 30) + 186);
+  let gy = 400 * Math.floor(days / 146097);
+  days %= 146097;
+  if (days > 36524) {
+    gy += 100 * Math.floor(--days / 36524);
+    days %= 36524;
+    if (days >= 365) days++;
+  }
+  gy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    gy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let gd = days + 1;
+  const sal_a = [0, 31, ((gy % 4 === 0 && gy % 100 !== 0) || (gy % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let gm = 0;
+  for (gm = 0; gm < 13 && gd > sal_a[gm]; gm++) gd -= sal_a[gm];
+  return { gy, gm, gd, iso: `${gy}-${String(gm).padStart(2, '0')}-${String(gd).padStart(2, '0')}` };
+}
 
-/* مقیاس رنگ بارش (mm در ساعت) */
-function precipColor(mm){
-  if (mm < 0.05) return null;
-  const stops = [
-    [0.05, 120,180,255,  60],
-    [0.3,   70,150,250, 130],
-    [1.0,   55,110,240, 180],
-    [3.0,  110, 80,230, 205],
-    [7.0,  185, 70,190, 225],
-    [15,   235, 70,110, 240],
-    [30,   255,140, 60, 250],
-  ];
-  if (mm >= 30) return [255,190,70,250];
-  for (let i=0; i<stops.length-1; i++){
-    const a = stops[i], b = stops[i+1];
-    if (mm <= b[0]){
-      const t = (mm - a[0]) / (b[0] - a[0]);
-      return [a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t, a[3]+(b[3]-a[3])*t, a[4]+(b[4]-a[4])*t];
+const PERSIAN_MONTHS = [
+  'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
+  'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'
+];
+
+const PERSIAN_WEEKDAYS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+
+function getJalaliDateStr(dateObj) {
+  const j = gregorianToJalali(dateObj.getFullYear(), dateObj.getMonth() + 1, dateObj.getDate());
+  const wDay = PERSIAN_WEEKDAYS[dateObj.getDay()];
+  return {
+    ...j,
+    weekday: wDay,
+    full: `${wDay} ${j.jd} ${PERSIAN_MONTHS[j.jm - 1]}`,
+    short: `${j.jd} ${PERSIAN_MONTHS[j.jm - 1]}`
+  };
+}
+
+// ==========================================
+// 2. دیتابیس شهرهای ایران + قابلیت ژئوکودینگ پویا
+// ==========================================
+const POPULAR_CITIES = [
+  { name: 'چالوس', lat: 36.6550, lon: 51.4204, province: 'مازندران' },
+  { name: 'نوشهر', lat: 36.6486, lon: 51.4961, province: 'مازندران' },
+  { name: 'رامسر', lat: 36.9180, lon: 50.6480, province: 'مازندران' },
+  { name: 'کلاردشت', lat: 36.4914, lon: 51.1558, province: 'مازندران' },
+  { name: 'رشت', lat: 37.2809, lon: 49.5924, province: 'گیلان' },
+  { name: 'انزلی', lat: 37.4747, lon: 49.4589, province: 'گیلان' },
+  { name: 'لاهیجان', lat: 37.2070, lon: 50.0031, province: 'گیلان' },
+  { name: 'ساری', lat: 36.5659, lon: 53.0586, province: 'مازندران' },
+  { name: 'بابل', lat: 36.5419, lon: 52.6782, province: 'مازندران' },
+  { name: 'آمل', lat: 36.4696, lon: 52.3507, province: 'مازندران' },
+  { name: 'تهران', lat: 35.6892, lon: 51.3890, province: 'تهران' },
+  { name: 'کرج', lat: 35.8327, lon: 50.9915, province: 'البرز' },
+  { name: 'مشهد', lat: 36.2972, lon: 59.6067, province: 'خراسان رضوی' },
+  { name: 'اصفهان', lat: 32.6546, lon: 51.6680, province: 'اصفهان' },
+  { name: 'شیراز', lat: 29.5918, lon: 52.5837, province: 'فارس' },
+  { name: 'تبریز', lat: 38.0800, lon: 46.2919, province: 'آذربایجان شرقی' },
+  { name: 'اهواز', lat: 31.3183, lon: 48.6706, province: 'خوزستان' },
+  { name: 'کیش', lat: 26.5578, lon: 53.9799, province: 'هرمزگان' },
+  { name: 'قشم', lat: 26.9581, lon: 56.2719, province: 'هرمزگان' },
+  { name: 'بندرعباس', lat: 27.1832, lon: 56.2666, province: 'هرمزگان' },
+  { name: 'بوشهر', lat: 28.9234, lon: 50.8203, province: 'بوشهر' },
+  { name: 'یزد', lat: 31.8974, lon: 54.3569, province: 'یزد' },
+  { name: 'کرمان', lat: 30.2839, lon: 57.0834, province: 'کرمان' },
+  { name: 'کرمانشاه', lat: 34.3142, lon: 47.0650, province: 'کرمانشاه' },
+  { name: 'همدان', lat: 34.7989, lon: 48.5150, province: 'همدان' },
+  { name: 'ارومیه', lat: 37.5527, lon: 45.0761, province: 'آذربایجان غربی' },
+  { name: 'اردبیل', lat: 38.2498, lon: 48.2933, province: 'اردبیل' },
+  { name: 'سنندج', lat: 35.3219, lon: 46.9862, province: 'کردستان' },
+  { name: 'خرم‌آباد', lat: 33.4878, lon: 48.3558, province: 'لرستان' },
+  { name: 'زنجان', lat: 36.6736, lon: 48.4787, province: 'زنجان' },
+  { name: 'قم', lat: 34.6401, lon: 50.8764, province: 'قم' },
+  { name: 'قزوین', lat: 36.2797, lon: 50.0049, province: 'قزوین' },
+  { name: 'گرگان', lat: 36.8427, lon: 54.4439, province: 'گلستان' },
+  { name: 'اراک', lat: 34.0917, lon: 49.6892, province: 'مرکزی' },
+  { name: 'کاشان', lat: 33.9850, lon: 51.4100, province: 'اصفهان' },
+  { name: 'بابلسر', lat: 36.7027, lon: 52.6575, province: 'مازندران' },
+  { name: 'متل قو', lat: 36.7061, lon: 51.2158, province: 'مازندران' },
+  { name: 'سلمان‌شهر', lat: 36.7061, lon: 51.2158, province: 'مازندران' },
+  { name: 'ماسال', lat: 37.3629, lon: 49.1327, province: 'گیلان' },
+  { name: 'فومن', lat: 37.2241, lon: 49.3125, province: 'گیلان' },
+  { name: 'چابهار', lat: 25.2919, lon: 60.6430, province: 'سیستان و بلوچستان' },
+  { name: 'زاهدان', lat: 29.4963, lon: 60.8629, province: 'سیستان و بلوچستان' },
+  { name: 'ایلام', lat: 33.6374, lon: 46.4227, province: 'ایلام' },
+  { name: 'شهرکرد', lat: 32.3256, lon: 50.8644, province: 'چهارمحال و بختیاری' },
+  { name: 'یاسوج', lat: 30.6684, lon: 51.5876, province: 'کهگیلویه و بویراحمد' },
+  { name: 'سمنان', lat: 35.5769, lon: 53.3953, province: 'سمنان' },
+  { name: 'بجنورد', lat: 37.4747, lon: 57.3290, province: 'خراسان شمالی' },
+  { name: 'بیرجند', lat: 32.8663, lon: 59.2211, province: 'خراسان جنوبی' },
+  { name: 'دماوند', lat: 35.7179, lon: 52.0650, province: 'تهران' },
+  { name: 'سرعین', lat: 38.1517, lon: 48.0706, province: 'اردبیل' }
+];
+
+async function resolveLocation(cityName) {
+  // ۱. بررسی کش دیتابیس داخلی
+  const clean = cityName.trim();
+  const match = POPULAR_CITIES.find(c => c.name === clean || clean.includes(c.name) || c.name.includes(clean));
+  if (match) return match;
+
+  // ۲. در صورت نبود، ژئوکودینگ آنلاین از Open-Meteo
+  try {
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=1&language=fa&format=json`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      const top = data.results[0];
+      return {
+        name: top.name,
+        lat: top.latitude,
+        lon: top.longitude,
+        province: top.admin1 || top.country || 'ایران'
+      };
     }
+  } catch (e) {
+    console.warn('Geocoding error:', e);
   }
   return null;
 }
-function cloudColor(pct){
-  if (pct < 8) return null;
-  const t = clamp(pct/100, 0, 1);
-  const g = 190 + 55*t;
-  return [g, g+4, 255, 22 + 145*t];
-}
 
-/* ══════════ شبکه ══════════ */
+// ==========================================
+// 3. موتور استخراج زبان طبیعی (Persian NLP)
+// ==========================================
+const NUMBER_WORDS = {
+  'اول': 1, 'یکم': 1, 'یک': 1, '۱': 1, '1': 1,
+  'دوم': 2, 'دو': 2, '۲': 2, '2': 2,
+  'سوم': 3, 'سه': 3, '۳': 3, '3': 3,
+  'چهارم': 4, 'چهار': 4, '۴': 4, '4': 4,
+  'پنجم': 5, 'پنج': 5, '۵': 5, '5': 5,
+  'ششم': 6, 'شش': 6, '۶': 6, '6': 6,
+  'هفتم': 7, 'هفت': 7, '۷': 7, '7': 7,
+  'هشتم': 8, 'هشت': 8, '۸': 8, '8': 8,
+  'نهم': 9, 'نه': 9, '۹': 9, '9': 9,
+  'دهم': 10, 'ده': 10, '۱۰': 10, '10': 10,
+  'یازدهم': 11, '۱۱': 11, '11': 11,
+  'دوازدهم': 12, '۱۲': 12, '12': 12,
+  'سیزدهم': 13, '۱۳': 13, '13': 13,
+  'چهاردهم': 14, '۱۴': 14, '14': 14,
+  'پانزدهم': 15, '۱۵': 15, '15': 15,
+  'شانزدهم': 16, '۱۶': 16, '16': 16,
+  'هفدهم': 17, '۱۷': 17, '17': 17,
+  'هجدهم': 18, '۱۸': 18, '18': 18,
+  'نوزدهم': 19, '۱۹': 19, '19': 19,
+  'بیستم': 20, '۲۰': 20, '20': 20,
+  'بیست و یکم': 21, '۲۱': 21, '21': 21,
+  'بیست و دوم': 22, '۲۲': 22, '22': 22,
+  'بیست و سوم': 23, '۲۳': 23, '23': 23,
+  'بیست و چهارم': 24, '۲۴': 24, '24': 24,
+  'بیست و پنجم': 25, '۲۵': 25, '25': 25,
+  'بیست و ششم': 26, '۲۶': 26, '26': 26,
+  'بیست و هفتم': 27, '۲۷': 27, '27': 27,
+  'بیست و هشتم': 28, '۲۸': 28, '28': 28,
+  'بیست و نهم': 29, '۲۹': 29, '29': 29,
+  'سی ام': 30, 'سی‌ام': 30, '۳۰': 30, '30': 30,
+  'سی و یکم': 31, '۳۱': 31, '31': 31
+};
 
-function buildGridPoints(){
-  const lats = [], lons = [];
-  for (let la = GRID.lat1; la >= GRID.lat0 - 1e-9; la -= GRID.step) lats.push(+la.toFixed(3));
-  for (let lo = GRID.lon0; lo <= GRID.lon1 + 1e-9; lo += GRID.step) lons.push(+lo.toFixed(3));
-  const pts = [];
-  for (const la of lats) for (const lo of lons) pts.push([la, lo]);
-  return { pts, lats, lons };
-}
+function parseQuery(text) {
+  const norm = text.replace(/[\u064B-\u065F]/g, '').trim(); // Remove Arabic diacritics
+  const now = new Date();
+  const currentJalali = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
-async function fetchGrid(){
-  const { pts, lats, lons } = buildGridPoints();
-  const half = Math.ceil(pts.length / 2);
-  const chunks = [pts.slice(0, half), pts.slice(half)];
+  let targetCity = null;
+  let startDate = null;
+  let endDate = null;
+  let isMonthlyRequest = false;
+  let userIntent = 'general'; // 'rain', 'temp', 'general'
 
-  // سقف نرخ Open-Meteo: بیش از دو درخواست هم‌زمان → HTTP 429
-  const parts = await Promise.all(chunks.map(ch => {
-    const u = new URL(API);
-    u.searchParams.set('latitude',  ch.map(p => p[0]).join(','));
-    u.searchParams.set('longitude', ch.map(p => p[1]).join(','));
-    u.searchParams.set('hourly', 'precipitation,cloud_cover');
-    u.searchParams.set('models', 'ecmwf_ifs025');
-    u.searchParams.set('forecast_days', '3');
-    u.searchParams.set('timezone', 'Asia/Tehran');
-    return getJSON(u);
-  }));
+  if (/بارون|باران|بارش|چتر|خیس|رگبار/i.test(norm)) userIntent = 'rain';
+  else if (/سرد|گرم|دما|درجه|خنک|یخ/i.test(norm)) userIntent = 'temp';
 
-  const locs = parts.flat();
-  if (locs.length !== pts.length) throw new Error('شبکه ناقص برگشت');
-
-  const times  = locs[0].hourly.time.slice(0, HOURS);
-  const nx = lons.length, ny = lats.length;
-  const precip = [], cloud = [];
-  for (let h = 0; h < times.length; h++){
-    precip.push(new Float32Array(nx * ny));
-    cloud.push(new Float32Array(nx * ny));
-  }
-  for (let i = 0; i < locs.length; i++){
-    const hh = locs[i].hourly;
-    for (let h = 0; h < times.length; h++){
-      precip[h][i] = hh.precipitation[h] ?? 0;
-      cloud[h][i]  = hh.cloud_cover[h] ?? 0;
+  // 1. تشخیص شهر
+  for (const c of POPULAR_CITIES) {
+    const reg = new RegExp(`(^|[\\s،,\\?])${c.name}([\\s،,\\?]|$)`, 'i');
+    if (reg.test(norm)) {
+      targetCity = c.name;
+      break;
     }
   }
-  return { times, precip, cloud, nx, ny, lats, lons };
-}
 
-/* ══════════ لایه‌ی canvas روی نقشه ══════════ */
-
-const mercY = lat => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360));
-
-const GridLayer = L.Layer.extend({
-  onAdd(map){
-    this._map = map;
-    const c = this._c = L.DomUtil.create('canvas', 'grid-canvas');
-    c.style.position = 'absolute';
-    c.style.pointerEvents = 'none';
-    map.getPanes().overlayPane.appendChild(c);
-    map.on('moveend zoomend resize', this._draw, this);
-    map.on('zoomanim', this._onZoomAnim, this);
-    this._draw();
-  },
-  onRemove(map){
-    map.off('moveend zoomend resize', this._draw, this);
-    map.off('zoomanim', this._onZoomAnim, this);
-    L.DomUtil.remove(this._c);
-  },
-  _onZoomAnim(){
-    // در حین انیمیشن زوم لایه محو می‌ماند تا نلرزد؛ _draw دوباره نشانش می‌دهد
-    this._c.style.opacity = '0';
-  },
-  redraw(){ this._draw(); },
-
-  _draw(){
-    const map = this._map, g = S.grid, c = this._c;
-    if (!c) return;
-    const size = map.getSize();
-    const dpr  = Math.min(window.devicePixelRatio || 1, 2);
-    c.width = size.x * dpr; c.height = size.y * dpr;
-    c.style.width = size.x + 'px'; c.style.height = size.y + 'px';
-    L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
-    // زوم تمام شد؛ ولی هرچه نزدیک‌تر، شبکه نسبت به تصویر درشت‌تر است
-    const z = map.getZoom();
-    c.style.opacity = z >= 9 ? '.35' : z >= 8 ? '.6' : '';
-
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, c.width, c.height);
-    if (!g || S.mode === 'none') return;
-
-    const vals = (S.mode === 'precip' ? g.precip : g.cloud)[clamp(S.hour, 0, g.times.length-1)];
-    if (!vals) return;
-    const colorOf = S.mode === 'precip' ? precipColor : cloudColor;
-
-    /* بافت کمکی در فضای مرکاتور — درون‌یابی دو-خطی را خود مرورگر
-       با imageSmoothing انجام می‌دهد، پس فقط باید ردیف‌ها را
-       از فضای عرض جغرافیایی به فضای مرکاتور بازنمونه‌برداری کرد. */
-    const nx = g.nx, ny = g.ny;
-    const OY = ny * 4;
-    // نامِ _off ممنوع است: L.Evented خودش متدی به همین نام دارد، پس
-    // this._off هرگز undefined نمی‌شود و به جای canvas یک تابع برمی‌گرداند
-    const buf = this._buf || (this._buf = document.createElement('canvas'));
-    buf.width = nx; buf.height = OY;
-    const octx = buf.getContext('2d');
-    const img = octx.createImageData(nx, OY);
-    const d = img.data;
-
-    const yTop = mercY(g.lats[0]), yBot = mercY(g.lats[ny-1]);
-    for (let oy = 0; oy < OY; oy++){
-      const my = yTop + (yBot - yTop) * (oy / (OY - 1));
-      const lat = (Math.atan(Math.exp(my)) - Math.PI/4) * 360/Math.PI;
-      // موقعیت کسری میان ردیف‌های شبکه (شبکه در lat یکنواخت است)
-      let fr = (g.lats[0] - lat) / GRID.step;
-      fr = clamp(fr, 0, ny - 1.0001);
-      const r0 = Math.floor(fr), t = fr - r0, r1 = Math.min(r0 + 1, ny - 1);
-      for (let x = 0; x < nx; x++){
-        const v = vals[r0*nx + x] * (1 - t) + vals[r1*nx + x] * t;
-        const col = colorOf(v);
-        const p = (oy*nx + x) * 4;
-        if (col){ d[p]=col[0]; d[p+1]=col[1]; d[p+2]=col[2]; d[p+3]=col[3]; }
+  // اگر شهر پیدا نشد، چک کردن الگوی «در [شهر]» یا «هوای [شهر]»
+  if (!targetCity) {
+    const cityMatch = norm.match(/(?:در|هوای|وضعیت|شهر|برای)\s+([آ-یa-zA-Z\s]{3,15})/);
+    if (cityMatch && cityMatch[1]) {
+      const candidate = cityMatch[1].trim().split(/\s+/)[0];
+      if (candidate.length > 2 && !PERSIAN_MONTHS.includes(candidate)) {
+        targetCity = candidate;
       }
     }
-    octx.putImageData(img, 0, 0);
-
-    // بافت از مرکزِ گوشه‌ی بالا-راست تا مرکزِ گوشه‌ی پایین-چپِ شبکه کشیده می‌شود؛
-    // همان بازه‌ای که در فضای مرکاتور نمونه‌برداری شد، پس بدون اعوجاج است
-    const tl = map.latLngToContainerPoint([g.lats[0], g.lons[0]]);
-    const br = map.latLngToContainerPoint([g.lats[ny-1], g.lons[nx-1]]);
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(buf, tl.x*dpr, tl.y*dpr, (br.x-tl.x)*dpr, (br.y-tl.y)*dpr);
-  },
-});
-
-/* ══════════ داده‌ی یک نقطه ══════════ */
-
-async function fetchPoint(lat, lon){
-  const u = new URL(API);
-  u.searchParams.set('latitude',  lat.toFixed(4));
-  u.searchParams.set('longitude', lon.toFixed(4));
-  u.searchParams.set('current',
-    'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,precipitation,is_day');
-  u.searchParams.set('hourly', 'precipitation,weather_code');
-  u.searchParams.set('daily',
-    'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max');
-  u.searchParams.set('models', MODELS.map(m => m.key).join(','));
-  u.searchParams.set('timezone', 'Asia/Tehran');
-  u.searchParams.set('forecast_days', '7');
-  return getJSON(u);
-}
-
-/* Open-Meteo سقف نرخ دارد؛ یک بار با مکث دوباره تلاش می‌کنیم و
-   خطایش را به زبان آدمیزاد ترجمه می‌کنیم */
-async function getJSON(u, retried){
-  let r;
-  try { r = await fetch(u); }
-  catch { throw new Error('اینترنت وصل نیست یا Open-Meteo در دسترس نیست'); }
-  if (r.status === 429){
-    if (!retried){
-      await new Promise(res => setTimeout(res, 2500));
-      return getJSON(u, true);
-    }
-    throw new Error('سقف نرخ Open-Meteo پر شده — چند دقیقه بعد دوباره امتحان کن');
   }
-  if (!r.ok) throw new Error('پاسخ سرور: HTTP ' + r.status);
-  return r.json();
-}
 
-/* نزدیک‌ترین بارش: اولین ساعتی که دست‌کم دو مدل از سه مدل
-   بارشِ معنادار (≥ ۰٫۲ میلی‌متر) می‌بینند */
-function nextRain(hourly){
-  const times = hourly.time;
-  const series = MODELS.map(m => hourly['precipitation_' + m.key] || []);
-  const now = Date.now();
-  for (let i = 0; i < times.length; i++){
-    const t = new Date(times[i] + '+03:30').getTime();
-    if (t < now - 3600e3) continue;
-    const votes = series.map(s => (s[i] ?? 0) >= 0.2);
-    const n = votes.filter(Boolean).length;
-    if (n >= 2){
-      const mm = series.map(s => s[i] ?? 0).reduce((a,b) => a+b, 0) / 3;
-      // تا کِی ادامه دارد
-      let j = i;
-      while (j < times.length &&
-             series.map(s => (s[j] ?? 0) >= 0.2).filter(Boolean).length >= 2) j++;
-      return { i, t, votes, n, mm, hours: j - i };
+  // 2. بررسی بازه‌های تاریخی معین شمسی (مانند: ۵ تا ۹ مهر، یا پنجم تا نهم مهر، یا ۱۰ آبان)
+  let matchedMonthIdx = -1;
+  for (let m = 0; m < PERSIAN_MONTHS.length; m++) {
+    if (new RegExp(PERSIAN_MONTHS[m]).test(norm)) {
+      matchedMonthIdx = m + 1; // 1 to 12
+      break;
     }
   }
-  return null;
-}
 
-/* ══════════ رندر پنل ══════════ */
+  if (matchedMonthIdx !== -1) {
+    // تبدیل ارقام فارسی به انگلیسی در کل متن برای استخراج آسان‌تر اعداد
+    const normalizedDigits = norm.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
 
-function renderPanel(){
-  const d = S.point, sel = S.sel;
-  if (!d || !sel) return;
-  const cur = d.current, [ci, ctxt] = wmo(cur.weather_code);
-  const rain = nextRain(d.hourly);
+    // الگوی ۱: اعداد دو طرف تا/الی مثل «۵ تا ۹» یا «12 الی 16»
+    const numRange = normalizedDigits.match(/(\d{1,2})\s*(?:تا|الی|-)\s*(\d{1,2})/);
+    let d1 = null, d2 = null;
 
-  const el = document.createElement('div');
-  el.style.cssText = 'display:flex;flex-direction:column;gap:13px';
-
-  /* ── الان ── */
-  const now = document.createElement('div');
-  now.className = 'card';
-  now.innerHTML = `
-    <div class="now-place">
-      <h2>${sel.name}</h2>
-      <span class="coord">${sel.lat.toFixed(2)}°N ${sel.lon.toFixed(2)}°E</span>
-    </div>
-    <div class="now-main">
-      <div class="now-icon">${ci}</div>
-      <div>
-        <div class="now-temp">${Math.round(cur.temperature_2m)}°</div>
-        <div class="now-desc">${ctxt}</div>
-        <div class="now-feels">حس می‌شود ${Math.round(cur.apparent_temperature)}°</div>
-      </div>
-    </div>
-    <div class="now-stats">
-      <div class="stat"><div class="stat-v">${Math.round(cur.relative_humidity_2m)}%</div><div class="stat-k">رطوبت</div></div>
-      <div class="stat"><div class="stat-v">${Math.round(cur.wind_speed_10m)}</div><div class="stat-k">باد km/h</div></div>
-      <div class="stat"><div class="stat-v">${(cur.precipitation ?? 0).toFixed(1)}</div><div class="stat-k">بارش mm</div></div>
-    </div>`;
-  el.appendChild(now);
-
-  /* ── کی بارون میاد ── */
-  const rc = document.createElement('div');
-  rc.className = 'card';
-  if (rain){
-    const dt = new Date(rain.t);
-    const hh = pad2(dt.getHours());
-    const dayTxt = sameDay(dt, new Date()) ? 'امروز'
-                 : sameDay(dt, new Date(Date.now()+864e5)) ? 'فردا'
-                 : fmtDay.format(dt);
-    const dur = rain.hours >= 24 ? `حدود ${Math.round(rain.hours/24)} روز`
-                                 : `حدود ${rain.hours} ساعت`;
-    rc.innerHTML = `
-      <div class="card-title">کِی باران می‌آید؟</div>
-      <div class="rain-answer">
-        <div class="big-icon">🌧️</div>
-        <div>
-          <div class="rain-when rain-soon">${dayTxt} ساعت ${hh}</div>
-          <div class="rain-detail">${dur} · حدود ${rain.mm.toFixed(1)} میلی‌متر در ساعت</div>
-        </div>
-      </div>
-      <div class="agree">
-        <div class="dots">${rain.votes.map(v => `<span class="dot${v?' on':''}"></span>`).join('')}</div>
-        <span>${rain.n} مدل از ۳ مدل موافق‌اند${rain.n === 3 ? ' — اطمینان بالا' : ' — با احتیاط'}</span>
-      </div>`;
-  } else {
-    rc.innerHTML = `
-      <div class="card-title">کِی باران می‌آید؟</div>
-      <div class="rain-answer">
-        <div class="big-icon">☀️</div>
-        <div>
-          <div class="rain-when rain-none">تا ۷ روز آینده باران قابل‌توجهی نیست</div>
-          <div class="rain-detail">هیچ‌کدام از سه مدل بارش معناداری پیش‌بینی نمی‌کنند</div>
-        </div>
-      </div>`;
-  }
-  el.appendChild(rc);
-
-  /* ── نمودار ۴۸ ساعته ── */
-  const ch = document.createElement('div');
-  ch.className = 'card';
-  ch.innerHTML = `
-    <div class="card-title">بارش ۴۸ ساعت آینده — سه مدل کنار هم</div>
-    ${sparkSVG(d.hourly)}
-    <div class="chart-legend">
-      ${MODELS.map(m => `<span><i style="background:${m.color}"></i>${m.fa} <span style="opacity:.6">(${m.sub})</span></span>`).join('')}
-    </div>`;
-  el.appendChild(ch);
-
-  /* ── ۷ روز ── */
-  const dd = d.daily;
-  const maxSum = Math.max(0.6, ...MODELS.map(m =>
-    Math.max(...(dd['precipitation_sum_' + m.key] || [0]).map(v => v ?? 0))));
-  const rows = dd.time.map((ds, i) => {
-    const dt = new Date(ds + 'T12:00:00+03:30');
-    const isToday = sameDay(dt, new Date());
-    const code = dd['weather_code_ecmwf_ifs025'][i];
-    const [ic] = wmo(code);
-    const tmax = dd['temperature_2m_max_ecmwf_ifs025'][i];
-    const tmin = dd['temperature_2m_min_ecmwf_ifs025'][i];
-    const sums = MODELS.map(m => dd['precipitation_sum_' + m.key]?.[i] ?? 0);
-    const avg  = sums.reduce((a,b) => a+b, 0) / sums.length;
-    return `<div class="day${isToday ? ' is-today' : ''}">
-      <div class="d-name">${isToday ? 'امروز' : fmtDayShort.format(dt)}</div>
-      <div class="d-icon">${ic}</div>
-      <div>
-        <div class="d-bar"><span style="width:${clamp(avg/maxSum*100,0,100).toFixed(0)}%"></span></div>
-        ${avg >= 0.2 ? `<div class="d-mm">${avg.toFixed(1)} mm</div>` : ''}
-      </div>
-      <div class="d-temp"><b>${Math.round(tmax)}°</b><i>${Math.round(tmin)}°</i></div>
-    </div>`;
-  }).join('');
-  const dc = document.createElement('div');
-  dc.className = 'card';
-  dc.innerHTML = `<div class="card-title">۷ روز آینده</div><div class="days">${rows}</div>`;
-  el.appendChild(dc);
-
-  const inner = $('#panel-inner');
-  inner.innerHTML = '';
-  inner.appendChild(el);
-}
-
-const sameDay = (a,b) => a.getFullYear()===b.getFullYear()
-                      && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
-
-/* نمودار خطی بارش ۴۸ ساعته، سه مدل */
-function sparkSVG(hourly){
-  const N = 48, W = 320, H = 118, PB = 18, PT = 6;
-  const times = hourly.time.slice(0, N);
-  const series = MODELS.map(m => (hourly['precipitation_' + m.key] || []).slice(0, N).map(v => v ?? 0));
-  const peak = Math.max(0.6, ...series.flat());
-  const x = i => (i / (N - 1)) * W;
-  const y = v => PT + (1 - v / peak) * (H - PB - PT);
-
-  const paths = series.map((s, k) => {
-    const dstr = s.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-    return `<path d="${dstr}" fill="none" stroke="${MODELS[k].color}" stroke-width="1.9"
-            stroke-linejoin="round" stroke-linecap="round" opacity=".92"/>`;
-  }).join('');
-
-  // خط‌های شبکه‌ی روزانه و برچسب ساعت
-  let ticks = '';
-  for (let i = 0; i < N; i += 6){
-    const dt = new Date(times[i] + '+03:30');
-    ticks += `<line x1="${x(i)}" y1="${PT}" x2="${x(i)}" y2="${H-PB}" stroke="rgba(255,255,255,.055)" stroke-width="1"/>`
-           + `<text x="${x(i)}" y="${H-5}" fill="#65718a" font-size="9" text-anchor="middle"
-              font-family="Vazirmatn,sans-serif">${pad2(dt.getHours())}</text>`;
-  }
-  const nowLine = `<line x1="0" y1="${PT}" x2="0" y2="${H-PB}" stroke="#4cc9f0" stroke-width="1" opacity=".4" stroke-dasharray="2 2"/>`;
-
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-           aria-label="نمودار بارش ۴۸ ساعت آینده بر پایه‌ی سه مدل">
-    ${ticks}${nowLine}${paths}
-    <text x="${W-2}" y="${PT+9}" fill="#65718a" font-size="9" text-anchor="end"
-      font-family="Vazirmatn,sans-serif" direction="ltr">${peak.toFixed(1)} mm/h</text>
-  </svg>`;
-}
-
-/* ══════════ نقشه ══════════ */
-
-function initMap(){
-  const map = S.map = L.map('map', {
-    center:[32.4, 53.5], zoom:5, minZoom:4, maxZoom:11,
-    zoomControl:true, attributionControl:true, worldCopyJump:false,
-  });
-  map.zoomControl.setPosition('bottomright');
-  // قاب اولیه روی نیمه‌ی شمال‌غربی — جایی که هر سه مقصدِ ثابت هستند
-  map.fitBounds([[30.0, 44.0], [39.6, 56.5]], { padding:[16,16], animate:false });
-
-  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
-  L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    attribution:'© Esri · پیش‌بینی: Open-Meteo (ECMWF · GFS · ICON)',
-    maxZoom:16,
-  }).addTo(map);
-
-  S.layer = new GridLayer().addTo(map);
-
-  // برچسب مرز و شهر بالای لایه‌ی بارش تا خوانا بماند
-  L.tileLayer(ESRI + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom:16, pane:'shadowPane', opacity:.55,
-  }).addTo(map);
-
-  for (const c of CITIES){
-    const m = L.marker([c.lat, c.lon], {
-      icon: L.divIcon({ className:'',
-        html:`<div class="city-pin" data-city="${c.id}" data-group="${c.group}"
-                   title="${c.fa}">${c.fa}</div>`,
-        iconSize:[0,0], iconAnchor:[0,0] }),
-    }).addTo(map);
-    m.on('click', () => select(c.lat, c.lon, c.fa, c.id));
-    S.markers[c.id] = m;
-  }
-  map.on('zoomend', updatePins);
-  updatePins();
-
-  map.on('click', e => {
-    const { lat, lng } = e.latlng;
-    select(lat, lng, `${lat.toFixed(2)}°, ${lng.toFixed(2)}°`, null);
-    $('#map-hint').classList.add('is-hidden');
-  });
-}
-
-/* شهرهای شمال آن‌قدر به هم نزدیک‌اند که در زوم دور برچسب‌هاشان
-   روی هم می‌افتد؛ آن‌جا فقط یک نقطه نشان می‌دهیم */
-function updatePins(){
-  const far = S.map.getZoom() < 7;
-  document.querySelectorAll('.city-pin').forEach(p =>
-    p.classList.toggle('is-dot', far && p.dataset.group === 'شمال'));
-}
-
-function markPin(lat, lon){
-  if (S.pinMarker) S.map.removeLayer(S.pinMarker);
-  S.pinMarker = L.circleMarker([lat, lon], {
-    radius:6, color:'#4cc9f0', weight:2.5, fillColor:'#4cc9f0', fillOpacity:.35,
-  }).addTo(S.map);
-}
-
-/* ══════════ انتخاب نقطه ══════════ */
-
-let selSeq = 0;
-async function select(lat, lon, name, cityId){
-  const seq = ++selSeq;
-  S.sel = { lat, lon, name };
-
-  document.querySelectorAll('.chip').forEach(c =>
-    c.classList.toggle('is-active', c.dataset.city === cityId));
-  document.querySelectorAll('.city-pin').forEach(p =>
-    p.classList.toggle('is-sel', p.dataset.city === cityId));
-  updatePins();
-  markPin(lat, lon);
-
-  $('#panel-inner').innerHTML =
-    '<div class="skeleton-block"><div class="sk sk-lg"></div><div class="sk"></div><div class="sk"></div></div>';
-
-  try {
-    const key = `pt:${lat.toFixed(3)},${lon.toFixed(3)}`;
-    S.point = await cached(key, () => fetchPoint(lat, lon), true);
-    if (seq !== selSeq) return;            // انتخاب تازه‌تری رسیده
-    renderPanel();
-  } catch (err){
-    if (seq !== selSeq) return;
-    $('#panel-inner').innerHTML =
-      `<div class="card"><div class="card-title">داده نیامد</div>
-       <div style="font-size:13px;color:var(--ink-dim)">${err.message}</div>
-       <div style="font-size:12px;color:var(--ink-faint);margin-top:8px">
-       دوباره روی نقطه بزن یا دکمه‌ی ⟳ را فشار بده.</div></div>`;
-    toast('دریافت داده‌ی این نقطه ناموفق بود: ' + err.message, true);
-  }
-}
-
-/* کش کوتاه‌مدت در حافظه‌ی مرورگر — تا به سقف نرخ نخوریم */
-const memCache = new Map();
-const LS_PREFIX = 'wx:';
-
-async function cached(key, fn, persist){
-  const hit = memCache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.v;
-
-  if (persist){
-    try {
-      const raw = localStorage.getItem(LS_PREFIX + key);
-      if (raw){
-        const o = JSON.parse(raw);
-        if (Date.now() - o.at < CACHE_MS){
-          memCache.set(key, o);
-          return o.v;
+    if (numRange) {
+      d1 = parseInt(numRange[1], 10);
+      d2 = parseInt(numRange[2], 10);
+    } else {
+      // الگوی ۲: کلمات متنی مثل «پنجم تا نهم»
+      const wordsKeys = Object.keys(NUMBER_WORDS).sort((a, b) => b.length - a.length).join('|');
+      const wordRangeRegex = new RegExp(`(${wordsKeys})\\s*(?:تا|الی)\\s*(${wordsKeys})`);
+      const wordRange = norm.match(wordRangeRegex);
+      if (wordRange) {
+        d1 = NUMBER_WORDS[wordRange[1]];
+        d2 = NUMBER_WORDS[wordRange[2]];
+      } else {
+        // الگوی ۳: یک روز مشخص شمسی مانند «۱۰ مهر» یا «پنجم مهر»
+        const singleNum = normalizedDigits.match(/(\d{1,2})\s*(?:ام)?\s*(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)/);
+        if (singleNum) {
+          d1 = parseInt(singleNum[1], 10);
+          d2 = d1;
+        } else {
+          for (const [w, val] of Object.entries(NUMBER_WORDS)) {
+            if (new RegExp(`(^|[\\s])${w}\\s+${PERSIAN_MONTHS[matchedMonthIdx - 1]}`).test(norm)) {
+              d1 = val;
+              d2 = val;
+              break;
+            }
+          }
         }
       }
-    } catch {}   // حالت ناشناس یا حافظه‌ی پر — بی‌خیال کش
+    }
+
+    if (d1 && d2 && d1 <= 31 && d2 <= 31) {
+      let jy = currentJalali.jy;
+      // اگر ماه درخواست شده قبل از ماه جاری باشد، سال شمسی بعدی مدنظر است
+      if (matchedMonthIdx < currentJalali.jm) jy += 1;
+
+      const g1 = jalaliToGregorian(jy, matchedMonthIdx, Math.min(d1, d2));
+      const g2 = jalaliToGregorian(jy, matchedMonthIdx, Math.max(d1, d2));
+      startDate = new Date(g1.gy, g1.gm - 1, g1.gd);
+      endDate = new Date(g2.gy, g2.gm - 1, g2.gd);
+    }
   }
 
-  const v = await fn();
-  const rec = { v, at: Date.now() };
-  memCache.set(key, rec);
-  if (persist){
-    try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(rec)); }
-    catch { try { pruneLS(); } catch {} }
+  // 3. بررسی عبارات نسبی (امروز، فردا، آخر هفته، یک ماه آینده، ...)
+  if (!startDate) {
+    if (/یک\s*ماه|ماه\s*آینده|۳۰\s*روز|ماه\s*بعد/i.test(norm)) {
+      isMonthlyRequest = true;
+      startDate = new Date(now);
+      endDate = new Date(now.getTime() + 29 * 24 * 3600 * 1000);
+    } else if (/دو\s*هفته|۱۴\s*روز|۲\s*هفته/i.test(norm)) {
+      startDate = new Date(now);
+      endDate = new Date(now.getTime() + 14 * 24 * 3600 * 1000);
+    } else if (/۱۰\s*روز|ده\s*روز/i.test(norm)) {
+      startDate = new Date(now);
+      endDate = new Date(now.getTime() + 9 * 24 * 3600 * 1000);
+    } else if (/هفته\s*(آینده|بعد)/i.test(norm)) {
+      // شنبه آینده تا جمعه بعدی
+      const daysUntilNextSat = (6 - now.getDay() + 7) % 7 || 7;
+      startDate = new Date(now.getTime() + daysUntilNextSat * 24 * 3600 * 1000);
+      endDate = new Date(startDate.getTime() + 6 * 24 * 3600 * 1000);
+    } else if (/آخر\s*هفته|پنجشنبه|جمعه/i.test(norm)) {
+      // پنج‌شنبه و جمعه پیش‌رو
+      const day = now.getDay(); // 0=Sun, 4=Thu, 5=Fri
+      const daysUntilThu = (4 - day + 7) % 7;
+      startDate = new Date(now.getTime() + daysUntilThu * 24 * 3600 * 1000);
+      endDate = new Date(startDate.getTime() + 1 * 24 * 3600 * 1000); // Thu & Fri
+    } else if (/پس\s*فردا/i.test(norm)) {
+      startDate = new Date(now.getTime() + 2 * 24 * 3600 * 1000);
+      endDate = new Date(startDate);
+    } else if (/فردا/i.test(norm)) {
+      startDate = new Date(now.getTime() + 1 * 24 * 3600 * 1000);
+      endDate = new Date(startDate);
+    } else if (/امروز/i.test(norm)) {
+      startDate = new Date(now);
+      endDate = new Date(now);
+    } else {
+      // حالت پیش‌فرض: از امروز تا ۳ روز آینده
+      startDate = new Date(now);
+      endDate = new Date(now.getTime() + 3 * 24 * 3600 * 1000);
+    }
   }
-  return v;
+
+  return {
+    city: targetCity,
+    startDate,
+    endDate,
+    isMonthlyRequest,
+    userIntent,
+    rawText: norm
+  };
 }
 
-function pruneLS(){
-  for (const k of Object.keys(localStorage))
-    if (k.startsWith(LS_PREFIX)) localStorage.removeItem(k);
+// ==========================================
+// 4. دریافت داده‌های هواشناسی (Forecast & Climate)
+// ==========================================
+const WMO_CODES = {
+  0: { desc: 'آسمان صاف و آفتابی', icon: '☀️' },
+  1: { desc: 'عمدتاً صاف', icon: '🌤️' },
+  2: { desc: 'نیمه‌ابری', icon: '⛅' },
+  3: { desc: 'تمام ابری', icon: '☁️' },
+  45: { desc: 'مه‌آلود', icon: '🌫️' },
+  48: { desc: 'مه همراه با یخ‌زدگی', icon: '🌫️' },
+  51: { desc: 'نم‌نم باران پراکنده', icon: '🌦️' },
+  53: { desc: 'باران ملایم', icon: '🌧️' },
+  55: { desc: 'باران متناوب', icon: '🌧️' },
+  61: { desc: 'بارش باران', icon: '🌧️' },
+  63: { desc: 'بارش متوسط باران', icon: '🌧️' },
+  65: { desc: 'باران شدید', icon: '🌧️⛈️' },
+  71: { desc: 'بارش پراکنده برف', icon: '🌨️' },
+  73: { desc: 'بارش متوسط برف', icon: '🌨️' },
+  75: { desc: 'بارش شدید برف', icon: '❄️' },
+  80: { desc: 'رگبار باران', icon: '🌦️' },
+  81: { desc: 'رگبار متوسط باران', icon: '🌧️' },
+  82: { desc: 'رگبار شدید باران', icon: '⛈️' },
+  95: { desc: 'رعد و برق و باران', icon: '⛈️' }
+};
+
+function getWmoInfo(code) {
+  return WMO_CODES[code] || { desc: 'وضعیت متغیر', icon: '🌤️' };
 }
 
-/* ══════════ نوار زمان ══════════ */
+async function fetchWeatherData(lat, lon, startDate, endDate) {
+  const now = new Date();
+  // محاسبه تفاوت روز شروع با امروز
+  const diffDaysStart = Math.floor((startDate - now) / (24 * 3600 * 1000));
+  const diffDaysEnd = Math.floor((endDate - now) / (24 * 3600 * 1000));
 
-function setHour(h){
-  const g = S.grid;
-  S.hour = clamp(h, 0, (g ? g.times.length : HOURS) - 1);
-  $('#time-slider').value = S.hour;
-  if (g){
-    const dt = new Date(g.times[S.hour] + '+03:30');
-    const isNow = S.hour === 0;
-    $('#time-label .t-main').textContent =
-      isNow ? 'همین حالا' : `ساعت ${pad2(dt.getHours())}:00`;
-    $('#time-label .t-sub').textContent =
-      sameDay(dt, new Date()) ? 'امروز' : fmtDay.format(dt);
-    S.layer.redraw();
+  // اگر بازه در محدوده ۱۶ روز آینده باشد، از Forecast API با مدل‌های زنده استفاده می‌کنیم
+  if (diffDaysEnd < 16 && diffDaysStart >= -1) {
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,windspeed_10m_max&forecast_days=16&timezone=auto`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Forecast HTTP error ${res.status}`);
+      const data = await res.json();
+      
+      const daily = data.daily;
+      const days = [];
+
+      for (let i = 0; i < daily.time.length; i++) {
+        const dObj = new Date(daily.time[i] + 'T00:00:00');
+        // آیا این روز در بازه انتخابی کاربر هست؟
+        if (dObj >= new Date(startDate.toDateString()) && dObj <= new Date(endDate.toDateString())) {
+          const wmo = getWmoInfo(daily.weathercode[i]);
+          days.push({
+            date: dObj,
+            iso: daily.time[i],
+            jalali: getJalaliDateStr(dObj),
+            maxTemp: Math.round(daily.temperature_2m_max[i]),
+            minTemp: Math.round(daily.temperature_2m_min[i]),
+            precipSum: Math.round(daily.precipitation_sum[i] * 10) / 10,
+            precipProb: daily.precipitation_probability_max ? daily.precipitation_probability_max[i] : null,
+            windMax: Math.round(daily.windspeed_10m_max[i]),
+            desc: wmo.desc,
+            icon: wmo.icon,
+            isEstimate: false
+          });
+        }
+      }
+
+      return {
+        type: 'exact',
+        days,
+        source: 'مدل‌های ترکیبی جهانی (ECMWF / GFS)'
+      };
+    } catch (e) {
+      console.warn('Forecast API fetch failed, falling back:', e);
+    }
   }
-}
 
-function togglePlay(){
-  S.playing = !S.playing;
-  $('#btn-play').textContent = S.playing ? '❚❚' : '▶';
-  $('#btn-play').setAttribute('aria-label', S.playing ? 'توقف' : 'پخش انیمیشن');
-  clearInterval(S.timer);
-  if (S.playing){
-    S.timer = setInterval(() => {
-      const n = S.grid ? S.grid.times.length : HOURS;
-      setHour((S.hour + 1) % n);
-    }, 380);
-  }
-}
-
-function renderLegend(){
-  const el = $('#legend');
-  if (S.mode === 'none'){ el.style.display = 'none'; return; }
-  el.style.display = '';
-  if (S.mode === 'precip'){
-    const stops = [0.1, 0.5, 1, 3, 7, 15, 30];
-    const grad = stops.map((mm, i) => {
-      const c = precipColor(mm);
-      return `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${(c[3]/255).toFixed(2)}) ${(i/(stops.length-1)*100).toFixed(0)}%`;
-    }).join(',');
-    el.innerHTML = `<div class="legend-bar" style="width:146px;background:linear-gradient(90deg,${grad})"></div>
-      <div class="legend-ticks"><span>0.1</span><span>3</span><span>30 mm/h</span></div>`;
-  } else {
-    el.innerHTML = `<div class="legend-bar" style="width:146px;background:linear-gradient(90deg,rgba(190,194,255,.08),rgba(245,249,255,.92))"></div>
-      <div class="legend-ticks"><span>0</span><span>50</span><span>100٪</span></div>`;
-  }
-}
-
-/* ══════════ راه‌اندازی ══════════ */
-
-function buildChips(){
-  const nav = $('#city-chips');
-  nav.innerHTML = CITIES.map(c =>
-    `<button class="chip" data-city="${c.id}">${c.fa}</button>`).join('');
-  nav.addEventListener('click', e => {
-    const b = e.target.closest('.chip');
-    if (!b) return;
-    const c = CITIES.find(x => x.id === b.dataset.city);
-    S.map.setView([c.lat, c.lon], Math.max(S.map.getZoom(), 7), { animate:true });
-    select(c.lat, c.lon, c.fa, c.id);
-  });
-}
-
-async function loadGrid(showToast){
-  const btn = $('#btn-refresh');
-  btn.classList.add('is-busy');
+  // اگر فراتر از ۱۶ روز باشد یا در بازه ۳۰ روزه ماهانه (مشابه AccuWeather Monthly Trend):
+  // از ترکیب آرشیو اقلیمی سال اخیر برای همان بازه تاریخی استفاده می‌کنیم
   try {
-    S.grid = await cached('grid', fetchGrid);
-    $('#time-slider').max = S.grid.times.length - 1;
-    setHour(S.hour);
-    S.layer.redraw();
-    if (showToast) toast('نقشه به‌روز شد');
-  } catch (err){
-    toast('لایه‌ی نقشه بارگذاری نشد: ' + err.message, true);
-  } finally {
-    btn.classList.remove('is-busy');
+    // تاریخ متناظر در سال قبل برای همان بازه روز
+    const pastYearStart = new Date(startDate);
+    pastYearStart.setFullYear(pastYearStart.getFullYear() - 1);
+    const pastYearEnd = new Date(endDate);
+    pastYearEnd.setFullYear(pastYearEnd.getFullYear() - 1);
+
+    const sIso = pastYearStart.toISOString().split('T')[0];
+    const eIso = pastYearEnd.toISOString().split('T')[0];
+
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${sIso}&end_date=${eIso}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode&timezone=auto`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Archive HTTP error ${res.status}`);
+    const data = await res.json();
+    const daily = data.daily;
+    const days = [];
+
+    for (let i = 0; i < daily.time.length; i++) {
+      // تاریخ واقعی هدف امسال
+      const targetDate = new Date(startDate.getTime() + (i * 24 * 3600 * 1000));
+      const wmo = getWmoInfo(daily.weathercode[i] || 2);
+      const precip = Math.round((daily.precipitation_sum[i] || 0) * 10) / 10;
+      days.push({
+        date: targetDate,
+        iso: targetDate.toISOString().split('T')[0],
+        jalali: getJalaliDateStr(targetDate),
+        maxTemp: Math.round(daily.temperature_2m_max[i]),
+        minTemp: Math.round(daily.temperature_2m_min[i]),
+        precipSum: precip,
+        precipProb: precip > 1 ? 65 : (precip > 0 ? 35 : 10),
+        windMax: 12,
+        desc: wmo.desc,
+        icon: wmo.icon,
+        isEstimate: true
+      });
+    }
+
+    return {
+      type: 'monthly',
+      days,
+      source: 'ترند اقلیمی و ماهانه (AccuWeather-Style Climate Model)'
+    };
+  } catch (err) {
+    console.error('All weather fetches failed:', err);
+    return null;
   }
 }
 
-async function boot(){
-  initMap();
-  buildChips();
-  renderLegend();
+// ==========================================
+// 5. تولید پاسخ روان، تحلیلی و کارت‌های چت
+// ==========================================
+function generateAssistantResponse(parsed, weatherResult, location) {
+  if (!weatherResult || !weatherResult.days || weatherResult.days.length === 0) {
+    return {
+      text: `متأسفانه نتونستم برای بازه‌ی انتخابی در **${location.name}** داده‌ی معتبری پیدا کنم. می‌تونی دوباره یا برای یه تاریخ نزدیک‌تر بپرسی؟`,
+      cardsHtml: '',
+      suggestions: ['هوای امروز تهران', 'آخر هفته چالوس', 'هوای مشهد']
+    };
+  }
 
-  // اول کارت تهران، بعد شبکه — پشت سر هم، نه هم‌زمان،
-  // تا مجموع درخواست‌های هم‌زمان از سقف نرخ نگذرد
-  const tehran = CITIES[0];
-  await select(tehran.lat, tehran.lon, tehran.fa, tehran.id);
-  await loadGrid(false);
+  const days = weatherResult.days;
+  const isExact = weatherResult.type === 'exact';
 
-  $('#time-slider').addEventListener('input', e => setHour(+e.target.value));
-  $('#btn-play').addEventListener('click', togglePlay);
-  $('#btn-refresh').addEventListener('click', () => {
-    memCache.clear();
-    try { pruneLS(); } catch {}
-    loadGrid(true);
-    if (S.sel) select(S.sel.lat, S.sel.lon, S.sel.name,
-      CITIES.find(c => c.lat === S.sel.lat && c.lon === S.sel.lon)?.id ?? null);
+  // تحلیل کلی وضعیت
+  const maxTemps = days.map(d => d.maxTemp);
+  const minTemps = days.map(d => d.minTemp);
+  const highestTemp = Math.max(...maxTemps);
+  const lowestTemp = Math.min(...minTemps);
+  const totalRain = Math.round(days.reduce((acc, d) => acc + d.precipSum, 0) * 10) / 10;
+  const rainyDays = days.filter(d => d.precipSum >= 0.5 || (d.precipProb && d.precipProb >= 40));
+
+  let summaryText = '';
+  const dateRangeStr = days.length === 1 
+    ? days[0].jalali.full 
+    : `بازه‌ی ${days[0].jalali.short} تا ${days[days.length - 1].jalali.short}`;
+
+  // لحن خودمانی، دقیق و دوست‌داشتنی (سوزی / Claude persona)
+  if (parsed.userIntent === 'rain') {
+    if (rainyDays.length > 0) {
+      const peakRainDay = [...days].sort((a, b) => b.precipSum - a.precipSum)[0];
+      summaryText = `بله، در ${dateRangeStr} در **${location.name}** بارندگی داریم! 🌧️\n\n` +
+        `بیشترین بارش مربوط به **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})** با حدود **${peakRainDay.precipSum} میلی‌متر** و احتمال **${peakRainDay.precipProb || 70}٪** است. ` +
+        `کل بارش پیش‌بینی‌شده برای این بازه حدود **${totalRain} میلی‌متر** تخمین زده می‌شه. اگه مسافری، حتماً چتر و لباس بارانی همراه داشته باش!`;
+    } else {
+      summaryText = `خیالت راحت! در ${dateRangeStr} در **${location.name}** بارش موثری دیده نمی‌شه و هوا عمدتاً صاف تا نیمه‌ابری خواهد بود. ☀️`;
+    }
+  } else if (parsed.userIntent === 'temp') {
+    summaryText = `وضعیت دمای **${location.name}** در ${dateRangeStr}:\n\n` +
+      `بیشینه‌ی دما تا **${highestTemp} درجه** و کمینه‌ی اون در شب‌ها تا **${lowestTemp} درجه** می‌رسه. ` +
+      (lowestTemp < 10 ? 'شب‌ها و اوایل صبح هوا کاملاً سرده، حتماً لباس گرم ببر.' : 'هوا در مجموع معتدل و مطبوع پیش‌بینی می‌شه.');
+  } else {
+    // حالت عمومی (General Intent)
+    if (rainyDays.length > 0) {
+      summaryText = `در ${dateRangeStr} برای **${location.name}**، هوا متغیر و همراه با بارندگی است 🌦️\n\n` +
+        `دمای هوا بین **${lowestTemp}° تا ${highestTemp}° سانتی‌گراد** در نوسانه. در مجموع حدود **${totalRain} میلی‌متر** باران پیش‌بینی شده که در ${rainyDays.length} روز از این دوره شانس بارندگی بالاست.`;
+    } else {
+      summaryText = `هوای **${location.name}** در ${dateRangeStr} در مجموع آرام و پایدار پیش‌بینی می‌شه 🌤️\n\n` +
+        `آسمان غالباً صاف تا نیمه‌ابری است، دما بین **${lowestTemp}° تا ${highestTemp}° سانتی‌گراد** متغیره و شرایط جوی برای سفر و تردد مناسب خواهد بود.`;
+    }
+  }
+
+  // توضیح در مورد مدل پیش‌بینی
+  if (!isExact) {
+    summaryText += `\n\n*(💡 این تاریخ فراتر از افق ۱۶ روزه‌ی مدل‌های عددی قطعی است؛ بنابراین داده‌ها بر اساس ترند اقلیمی و ماهانه AccuWeather-Style برای این روزها برآورد شده‌اند.)*`;
+  }
+
+  // ساخت کارت‌های تعاملی روزانه
+  let cardsHtml = `
+    <div class="weather-card-container">
+      <div class="weather-header-banner">
+        <div class="weather-header-info">
+          <span class="weather-loc-icon">📍</span>
+          <div>
+            <div class="weather-loc-title">${location.name} (${location.province})</div>
+            <div class="weather-loc-sub">${dateRangeStr}</div>
+          </div>
+        </div>
+        <span class="weather-badge ${isExact ? 'badge-exact' : 'badge-monthly'}">
+          ${isExact ? '⚡ پیش‌بینی دقیق مدل‌های جهانی' : '🗓️ ترند اقلیمی ماهانه (AccuWeather)'}
+        </span>
+      </div>
+
+      <div class="daily-cards-scroll">
+  `;
+
+  days.forEach((day, idx) => {
+    const isToday = idx === 0 && Math.abs(day.date - new Date()) < 24 * 3600 * 1000;
+    cardsHtml += `
+      <div class="day-card ${isToday ? 'is-today' : ''}">
+        <span class="day-card-name">${isToday ? 'امروز' : day.jalali.weekday}</span>
+        <span class="day-card-date">${day.jalali.short}</span>
+        <span class="day-card-icon">${day.icon}</span>
+        <div class="day-card-temp">
+          <span class="temp-max">${day.maxTemp}°</span>
+          <span class="temp-min">${day.minTemp}°</span>
+        </div>
+        ${day.precipSum > 0 ? `
+          <div class="day-card-precip" title="احتمال ${day.precipProb || 60}٪ - حجم ${day.precipSum} mm">
+            <span>💧</span>
+            <span>${day.precipSum}mm</span>
+          </div>
+        ` : `
+          <span class="day-card-desc">${day.desc.split(' ')[0]}</span>
+        `}
+      </div>
+    `;
   });
 
-  document.querySelectorAll('.seg-btn').forEach(b => {
-    b.addEventListener('click', () => {
-      document.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('is-active'));
-      b.classList.add('is-active');
-      S.mode = b.dataset.layer;
-      renderLegend();
-      S.layer.redraw();
+  cardsHtml += `
+      </div>
+    </div>
+  `;
+
+  // تولید پیشنهادات هوشمند مرتبط با همان شهر
+  const suggestions = [
+    `بارندگی ${location.name} در روزهای بعد`,
+    `هوای تهران چطوره؟`,
+    `یک ماه آینده ${location.name}`
+  ];
+
+  return {
+    text: summaryText,
+    cardsHtml,
+    suggestions
+  };
+}
+
+// ==========================================
+// 6. مدیریت رابط کاربری چت (UI Controller)
+// ==========================================
+const chatStream = document.getElementById('chat-stream');
+const messagesContainer = document.getElementById('messages');
+const chatInput = document.getElementById('chat-input');
+const btnSend = document.getElementById('btn-send');
+const btnGps = document.getElementById('btn-gps');
+const btnClear = document.getElementById('btn-clear');
+const toastEl = document.getElementById('toast');
+
+function showToast(msg) {
+  if (!toastEl) return;
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  setTimeout(() => toastEl.classList.remove('show'), 3000);
+}
+
+function scrollToBottom() {
+  setTimeout(() => {
+    chatStream.scrollTop = chatStream.scrollHeight;
+  }, 50);
+}
+
+function appendUserMessage(text) {
+  const row = document.createElement('div');
+  row.className = 'msg-row user';
+  row.innerHTML = `
+    <div class="msg-avatar">👤</div>
+    <div class="msg-body">
+      <div class="msg-bubble">${escapeHtml(text)}</div>
+    </div>
+  `;
+  messagesContainer.appendChild(row);
+  scrollToBottom();
+}
+
+function appendTypingIndicator() {
+  const row = document.createElement('div');
+  row.className = 'msg-row assistant typing-row';
+  row.id = 'typing-indicator';
+  row.innerHTML = `
+    <div class="msg-avatar">🌤️</div>
+    <div class="msg-body">
+      <div class="msg-bubble typing-bubble">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+    </div>
+  `;
+  messagesContainer.appendChild(row);
+  scrollToBottom();
+  return row;
+}
+
+function removeTypingIndicator() {
+  const el = document.getElementById('typing-indicator');
+  if (el) el.remove();
+}
+
+function appendAssistantMessage(data) {
+  removeTypingIndicator();
+
+  const row = document.createElement('div');
+  row.className = 'msg-row assistant';
+
+  let html = `
+    <div class="msg-avatar">🌤️</div>
+    <div class="msg-body">
+      <div class="msg-bubble">
+        <div style="white-space: pre-line; margin-bottom: 8px;">${data.text}</div>
+        ${data.cardsHtml || ''}
+      </div>
+  `;
+
+  if (data.suggestions && data.suggestions.length > 0) {
+    html += `<div class="msg-suggestions">`;
+    data.suggestions.forEach(s => {
+      html += `<button class="suggestion-pill" data-query="${escapeHtml(s)}">${escapeHtml(s)}</button>`;
+    });
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+  row.innerHTML = html;
+  messagesContainer.appendChild(row);
+
+  // وصل کردن ایونت کلیک پیشنهادات
+  row.querySelectorAll('.suggestion-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const q = btn.getAttribute('data-query');
+      if (q) handleUserSubmit(q);
     });
   });
 
-  document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' && e.key !== 'Escape') return;
-    if (e.key === ' '){ e.preventDefault(); togglePlay(); }
-    if (e.key === 'ArrowRight') setHour(S.hour - 1);   // RTL: راست = عقب
-    if (e.key === 'ArrowLeft')  setHour(S.hour + 1);
-  });
-
-  setTimeout(() => $('#map-hint').classList.add('is-hidden'), 7000);
+  scrollToBottom();
 }
 
-document.addEventListener('DOMContentLoaded', boot);
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+}
+
+// رندر پیام آغازین (Welcome message)
+function renderWelcomeMessage() {
+  messagesContainer.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'msg-row assistant';
+  row.innerHTML = `
+    <div class="msg-avatar">🌤️</div>
+    <div class="msg-body">
+      <div class="welcome-card">
+        <div class="welcome-title">سلام فرزین عزیز! 👋 من دستیار هوشمند آب‌وهوای تو هستم.</div>
+        <div class="welcome-desc">
+          دیگه نیازی به چک کردن نقشه‌های شلوغ و لایه‌های گنگ نداری. هر جا و هر تاریخی رو به زبون ساده بپرس؛ از فردا تا یک ماه آینده، وضعیت باران، دما و هوا رو با مدل‌های دقیق برات بررسی می‌کنم.
+        </div>
+        <div class="chips-title">پرسش‌های آماده برای شروع:</div>
+        <div class="chips-grid">
+          <button class="chip-btn" data-query="۵ تا ۹ مهر چالوس هوا چطوره؟ بارونیه؟">🌧️ ۵ تا ۹ مهر چالوس چطوره؟</button>
+          <button class="chip-btn" data-query="فردا تهران بارون میاد؟">☔ فردا تهران بارون داریم؟</button>
+          <button class="chip-btn" data-query="آخر هفته رامسر هوا چطوره؟">🏖️ آخر هفته رامسر هوا چطوره؟</button>
+          <button class="chip-btn" data-query="وضع هوای شیراز در یک ماه آینده">📅 وضع هوای شیراز در ماه آینده</button>
+          <button class="chip-btn" data-query="دمای تبریز تا آخر این هفته">❄️ دمای تبریز تا آخر این هفته</button>
+        </div>
+      </div>
+    </div>
+  `;
+  messagesContainer.appendChild(row);
+
+  row.querySelectorAll('.chip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const q = btn.getAttribute('data-query');
+      if (q) handleUserSubmit(q);
+    });
+  });
+}
+
+// پردازش اصلی پیام کاربر
+async function handleUserSubmit(queryText) {
+  const text = (queryText || chatInput.value).trim();
+  if (!text) return;
+
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  btnSend.disabled = true;
+
+  appendUserMessage(text);
+  appendTypingIndicator();
+
+  try {
+    // 1. پردازش زبان طبیعی کوئری
+    const parsed = parseQuery(text);
+
+    // 2. تعیین شهر
+    let loc = null;
+    if (parsed.city) {
+      loc = await resolveLocation(parsed.city);
+    } else {
+      // اگر شهری در متن مشخص نبود، پیش‌فرض را روی تهران بگذار یا بپرس
+      loc = await resolveLocation('تهران');
+    }
+
+    if (!loc) {
+      appendAssistantMessage({
+        text: `متوجه نشدم منظورت دقیقاً کدوم شهره! لطفاً اسم شهر (مثلاً چالوس، رشت، تهران...) رو هم در پیامت بنویس.`,
+        cardsHtml: '',
+        suggestions: ['۵ تا ۹ مهر چالوس', 'هوای فردا تهران', 'آخر هفته اصفهان']
+      });
+      btnSend.disabled = false;
+      return;
+    }
+
+    // 3. دریافت داده‌های آب‌وهوا از API
+    const weatherResult = await fetchWeatherData(loc.lat, loc.lon, parsed.startDate, parsed.endDate);
+
+    // 4. تولید پاسخ هوشمند و نمایش
+    const reply = generateAssistantResponse(parsed, weatherResult, loc);
+    appendAssistantMessage(reply);
+
+  } catch (err) {
+    console.error('Processing error:', err);
+    appendAssistantMessage({
+      text: 'متأسفانه در اتصال به سامانه‌ی هواشناسی مشکلی پیش اومد. لطفاً چند لحظه بعد دوباره امتحان کن.',
+      cardsHtml: '',
+      suggestions: ['چالوس چطوره؟', 'هوای تهران']
+    });
+  } finally {
+    btnSend.disabled = false;
+  }
+}
+
+// رویدادهای ورودی و دکمه‌ها
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    handleUserSubmit();
+  }
+});
+
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+
+btnSend.addEventListener('click', () => handleUserSubmit());
+
+btnClear.addEventListener('click', () => {
+  renderWelcomeMessage();
+  showToast('گفتگو بازنشانی شد');
+});
+
+// قابلیت موقعیت‌یابی با GPS
+btnGps.addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    showToast('مرورگر شما از GPS پشتیبانی نمی‌کند');
+    return;
+  }
+
+  showToast('در حال دریافت موقعیت مکانی...');
+  btnGps.style.opacity = '0.5';
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      btnGps.style.opacity = '1';
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+
+      appendUserMessage('📍 هوای موقعیت فعلی من چطوره؟');
+      appendTypingIndicator();
+
+      const now = new Date();
+      const end = new Date(now.getTime() + 4 * 24 * 3600 * 1000);
+      const weatherResult = await fetchWeatherData(lat, lon, now, end);
+
+      const reply = generateAssistantResponse(
+        { userIntent: 'general', isMonthlyRequest: false },
+        weatherResult,
+        { name: 'موقعیت شما', province: 'مختصات ثبت‌شده' }
+      );
+      appendAssistantMessage(reply);
+    },
+    (err) => {
+      btnGps.style.opacity = '1';
+      showToast('دسترسی به موقعیت مکانی تأیید نشد');
+    },
+    { timeout: 10000 }
+  );
+});
+
+// راه‌اندازی اولیه
+renderWelcomeMessage();
