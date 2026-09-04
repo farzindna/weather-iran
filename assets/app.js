@@ -361,29 +361,29 @@ function parseQuery(text) {
 // 4. دریافت داده‌های هواشناسی (Forecast & Climate)
 // ==========================================
 const WMO_CODES = {
-  0: { desc: 'آسمان صاف و آفتابی', icon: '☀️' },
-  1: { desc: 'عمدتاً صاف', icon: '🌤️' },
+  0: { desc: 'صاف و آفتابی', icon: '☀️' },
+  1: { desc: 'عمدتاً آفتابی', icon: '🌤️' },
   2: { desc: 'نیمه‌ابری', icon: '⛅' },
-  3: { desc: 'تمام ابری', icon: '☁️' },
+  3: { desc: 'تمام‌ابری و گرفته', icon: '☁️' },
   45: { desc: 'مه‌آلود', icon: '🌫️' },
-  48: { desc: 'مه همراه با یخ‌زدگی', icon: '🌫️' },
-  51: { desc: 'نم‌نم باران پراکنده', icon: '🌦️' },
-  53: { desc: 'باران ملایم', icon: '🌧️' },
-  55: { desc: 'باران متناوب', icon: '🌧️' },
-  61: { desc: 'بارش باران', icon: '🌧️' },
-  63: { desc: 'بارش متوسط باران', icon: '🌧️' },
-  65: { desc: 'باران شدید', icon: '🌧️⛈️' },
-  71: { desc: 'بارش پراکنده برف', icon: '🌨️' },
-  73: { desc: 'بارش متوسط برف', icon: '🌨️' },
-  75: { desc: 'بارش شدید برف', icon: '❄️' },
-  80: { desc: 'رگبار باران', icon: '🌦️' },
-  81: { desc: 'رگبار متوسط باران', icon: '🌧️' },
-  82: { desc: 'رگبار شدید باران', icon: '⛈️' },
-  95: { desc: 'رعد و برق و باران', icon: '⛈️' }
+  48: { desc: 'مه با سوز و یخ‌زدگی', icon: '🌫️' },
+  51: { desc: 'نم‌نم بارون پراکنده', icon: '🌦️' },
+  53: { desc: 'بارون ملایم', icon: '🌧️' },
+  55: { desc: 'بارون متناوب و گاه‌به‌گاه', icon: '🌧️' },
+  61: { desc: 'بارونی', icon: '🌧️' },
+  63: { desc: 'بارون حسابی', icon: '🌧️' },
+  65: { desc: 'بارون شدید و تند', icon: '🌧️⛈️' },
+  71: { desc: 'برف پراکنده', icon: '🌨️' },
+  73: { desc: 'برف قشنگ', icon: '🌨️' },
+  75: { desc: 'برف سنگین و کولاک', icon: '❄️' },
+  80: { desc: 'رگبار بارون', icon: '🌦️' },
+  81: { desc: 'رگبار تند', icon: '🌧️' },
+  82: { desc: 'رگبار شدید', icon: '⛈️' },
+  95: { desc: 'رعدوبرق و بارون', icon: '⛈️' }
 };
 
 function getWmoInfo(code) {
-  return WMO_CODES[code] || { desc: 'وضعیت متغیر', icon: '🌤️' };
+  return WMO_CODES[code] || { desc: 'هوای متغیر', icon: '🌤️' };
 }
 
 async function fetchWeatherData(lat, lon, startDate, endDate) {
@@ -490,7 +490,7 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
 function generateAssistantResponse(parsed, weatherResult, location) {
   if (!weatherResult || !weatherResult.days || weatherResult.days.length === 0) {
     return {
-      text: `متأسفانه نتونستم برای بازه‌ی انتخابی در **${location.name}** داده‌ی معتبری پیدا کنم. می‌تونی دوباره یا برای یه تاریخ نزدیک‌تر بپرسی؟`,
+      text: `شرمنده‌تم! نتونستم برای این روزها تو **${location.name}** دیتای درستی پیدا کنم. می‌خوای یه شهر دیگه یا یه تاریخ نزدیک‌تر رو بسنجیم؟`,
       cardsHtml: '',
       suggestions: ['هوای امروز تهران', 'آخر هفته چالوس', 'هوای مشهد']
     };
@@ -512,34 +512,34 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     ? days[0].jalali.full 
     : `بازه‌ی ${days[0].jalali.short} تا ${days[days.length - 1].jalali.short}`;
 
-  // لحن خودمانی، دقیق و دوست‌داشتنی (سوزی / Claude persona)
+  // لحن کاملاً محاوره‌ای، خودمونی و رفاقتی
   if (parsed.userIntent === 'rain') {
     if (rainyDays.length > 0) {
       const peakRainDay = [...days].sort((a, b) => b.precipSum - a.precipSum)[0];
-      summaryText = `بله، در ${dateRangeStr} در **${location.name}** بارندگی داریم! 🌧️\n\n` +
-        `بیشترین بارش مربوط به **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})** با حدود **${peakRainDay.precipSum} میلی‌متر** و احتمال **${peakRainDay.precipProb || 70}٪** است. ` +
-        `کل بارش پیش‌بینی‌شده برای این بازه حدود **${totalRain} میلی‌متر** تخمین زده می‌شه. اگه مسافری، حتماً چتر و لباس بارانی همراه داشته باش!`;
+      summaryText = `آره رفیق، تو ${dateRangeStr} تو **${location.name}** بارون داریم! 🌧️\n\n` +
+        `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})** با حدود **${peakRainDay.precipSum} میلی‌متر** و احتمال **${peakRainDay.precipProb || 70}٪**. ` +
+        `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون پیش‌بینی شده. اگه قصد رفتن داری، چتر و لباس بارونی حتماً همراهت باشه!`;
     } else {
-      summaryText = `خیالت راحت! در ${dateRangeStr} در **${location.name}** بارش موثری دیده نمی‌شه و هوا عمدتاً صاف تا نیمه‌ابری خواهد بود. ☀️`;
+      summaryText = `خیالت تخت تخت! تو ${dateRangeStr} تو **${location.name}** اصلاً خبری از بارون جدی نیست و هوا صاف یا فوقش کمی ابریه. ☀️`;
     }
   } else if (parsed.userIntent === 'temp') {
-    summaryText = `وضعیت دمای **${location.name}** در ${dateRangeStr}:\n\n` +
-      `بیشینه‌ی دما تا **${highestTemp} درجه** و کمینه‌ی اون در شب‌ها تا **${lowestTemp} درجه** می‌رسه. ` +
-      (lowestTemp < 10 ? 'شب‌ها و اوایل صبح هوا کاملاً سرده، حتماً لباس گرم ببر.' : 'هوا در مجموع معتدل و مطبوع پیش‌بینی می‌شه.');
+    summaryText = `اوضاع دمای **${location.name}** تو ${dateRangeStr} اینطوریه:\n\n` +
+      `گرم‌ترین ساعت‌ها تا **${highestTemp} درجه** می‌ره بالا و شب‌ها هم تا **${lowestTemp} درجه** خنک (یا سرد) می‌شه. ` +
+      (lowestTemp < 10 ? 'شب‌ها و اول صبح قشنگ سرده، پس حواست باشه لباس گرم دم دستت بذاری!' : 'هوا در کل خیلی معتدل و باحاله و می‌چسبه برای گشت‌وگذار.');
   } else {
     // حالت عمومی (General Intent)
     if (rainyDays.length > 0) {
-      summaryText = `در ${dateRangeStr} برای **${location.name}**، هوا متغیر و همراه با بارندگی است 🌦️\n\n` +
-        `دمای هوا بین **${lowestTemp}° تا ${highestTemp}° سانتی‌گراد** در نوسانه. در مجموع حدود **${totalRain} میلی‌متر** باران پیش‌بینی شده که در ${rainyDays.length} روز از این دوره شانس بارندگی بالاست.`;
+      summaryText = `تو ${dateRangeStr} هوای **${location.name}** یکم ناپایداره و بارون داریم 🌦️\n\n` +
+        `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره شانس بارندگی بالاست و کلاً حدود **${totalRain} میلی‌متر** بارون تخمین زده شده.`;
     } else {
-      summaryText = `هوای **${location.name}** در ${dateRangeStr} در مجموع آرام و پایدار پیش‌بینی می‌شه 🌤️\n\n` +
-        `آسمان غالباً صاف تا نیمه‌ابری است، دما بین **${lowestTemp}° تا ${highestTemp}° سانتی‌گراد** متغیره و شرایط جوی برای سفر و تردد مناسب خواهد بود.`;
+      summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
+        `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
     }
   }
 
-  // توضیح در مورد مدل پیش‌بینی
+  // توضیح در مورد مدل پیش‌بینی به زبان خودمونی
   if (!isExact) {
-    summaryText += `\n\n*(💡 این تاریخ فراتر از افق ۱۶ روزه‌ی مدل‌های عددی قطعی است؛ بنابراین داده‌ها بر اساس ترند اقلیمی و ماهانه AccuWeather-Style برای این روزها برآورد شده‌اند.)*`;
+    summaryText += `\n\n*(💡 راستی چون این تاریخ بیشتر از ۱۶ روز دیگه است، مدل‌های ساعتی قطعی هنوز فعال نشدن؛ واسه همین این پیش‌بینی رو بر اساس میانگین هوای همین روزها تو سال‌های اخیر برات درآوردم — دقیقاً مثل کاری که اکیوودر می‌کنه!)*`;
   }
 
   // ساخت کارت‌های تعاملی روزانه
@@ -554,7 +554,7 @@ function generateAssistantResponse(parsed, weatherResult, location) {
           </div>
         </div>
         <span class="weather-badge ${isExact ? 'badge-exact' : 'badge-monthly'}">
-          ${isExact ? '⚡ پیش‌بینی دقیق مدل‌های جهانی' : '🗓️ ترند اقلیمی ماهانه (AccuWeather)'}
+          ${isExact ? '⚡ پیش‌بینی دقیق ماهواره‌ای' : '🗓️ ترند ماهانه (مثل اکیوودر)'}
         </span>
       </div>
 
@@ -725,17 +725,17 @@ function renderWelcomeMessage() {
     <div class="msg-avatar">🌤️</div>
     <div class="msg-body">
       <div class="welcome-card">
-        <div class="welcome-title">سلام فرزین عزیز! 👋 من دستیار هوشمند آب‌وهوای تو هستم.</div>
+        <div class="welcome-title">سلام فرزین جان! چطوری رفیق؟ 👋</div>
         <div class="welcome-desc">
-          دیگه نیازی به چک کردن نقشه‌های شلوغ و لایه‌های گنگ نداری. هر جا و هر تاریخی رو به زبون ساده بپرس؛ از فردا تا یک ماه آینده، وضعیت باران، دما و هوا رو با مدل‌های دقیق برات بررسی می‌کنم.
+          دیگه لازم نیست با نقشه‌های شلوغ و لایه‌های گنگ سر و کله بزنی! هر شهری رو با هر تاریخی که می‌خوای بهم بگو؛ از فردا تا ماه آینده، خودم می‌پرم از ماهواره‌ها چک می‌کنم و بهت می‌گم بارون میاد، چتر لازمه یا هوا سرده.
         </div>
-        <div class="chips-title">پرسش‌های آماده برای شروع:</div>
+        <div class="chips-title">چند تا نمونه برای تست (فقط روشون بزن):</div>
         <div class="chips-grid">
-          <button class="chip-btn" data-query="۵ تا ۹ مهر چالوس هوا چطوره؟ بارونیه؟">🌧️ ۵ تا ۹ مهر چالوس چطوره؟</button>
-          <button class="chip-btn" data-query="فردا تهران بارون میاد؟">☔ فردا تهران بارون داریم؟</button>
-          <button class="chip-btn" data-query="آخر هفته رامسر هوا چطوره؟">🏖️ آخر هفته رامسر هوا چطوره؟</button>
-          <button class="chip-btn" data-query="وضع هوای شیراز در یک ماه آینده">📅 وضع هوای شیراز در ماه آینده</button>
-          <button class="chip-btn" data-query="دمای تبریز تا آخر این هفته">❄️ دمای تبریز تا آخر این هفته</button>
+          <button class="chip-btn" data-query="۵ تا ۹ مهر چالوس چطوره؟ بارونیه؟">🌧️ ۵ تا ۹ مهر چالوس بارونیه؟</button>
+          <button class="chip-btn" data-query="فردا تهران بارون میاد؟">☔ فردا تهران بارون میاد؟</button>
+          <button class="chip-btn" data-query="آخر هفته رامسر هوا چطوره؟">🏖️ آخر هفته رامسر چطوره؟</button>
+          <button class="chip-btn" data-query="وضع هوای شیراز در یک ماه آینده">📅 شیراز تو ماه آینده</button>
+          <button class="chip-btn" data-query="دمای تبریز تا آخر این هفته">❄️ دمای تبریز تا آخر هفته</button>
         </div>
       </div>
     </div>
@@ -769,9 +769,9 @@ async function handleUserSubmit(queryText) {
     // پاسخ به احوال‌پرسی
     if (parsed.type === 'greeting') {
       appendAssistantMessage({
-        text: 'سلام فرزین عزیز! 👋 روزت به‌خیر و پر از حس خوب.\nمن اینجام تا هر سوالی درباره آب‌وهوای هر نقطه‌ای از ایران داری (از فردا تا یک ماه آینده) رو دقیق و شفاف برات دربیارم. هوای کدوم شهر مد نظرته؟',
+        text: 'سلام فرزین جان! 👋 چطوری رفیق؟ همه‌چی روبه‌راهه؟\nبگو ببینم هوای کدوم شهرو می‌خوای برات بسنجم؟ (از فردا تا ماه آینده هر جا بخوای آماده‌ام!)',
         cardsHtml: '',
-        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'فردا تهران بارون میاد؟', 'آخر هفته رامسر هوا چطوره؟']
+        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'فردا تهران بارون میاد؟', 'آخر هفته رامسر چطوره؟']
       });
       btnSend.disabled = false;
       return;
@@ -780,7 +780,7 @@ async function handleUserSubmit(queryText) {
     // پاسخ به تشکر
     if (parsed.type === 'thanks') {
       appendAssistantMessage({
-        text: 'خواهش می‌کنم رفیق، خوشحالم که به دردت خورد! ❤️ هر وقت برنامه سفر یا کاری داشتی، فقط اسم شهر و تاریخشو بهم بگو تا چک کنم.',
+        text: 'نوکرتم رفیق! کاری نکردم. ❤️ هر وقت برنامه سفر داشتی یا خواستی بدونی فردا چی بپوشی، فقط صدام بزن!',
         cardsHtml: '',
         suggestions: ['هوای امروز تهران', 'آخر هفته شمال بارونیه؟', 'یک ماه آینده چالوس']
       });
@@ -791,9 +791,9 @@ async function handleUserSubmit(queryText) {
     // معرفی هویت
     if (parsed.type === 'identity') {
       appendAssistantMessage({
-        text: 'من دستیار هوای ایرانم! 🌤️\nکارم اینه که سوالاتت رو به زبون ساده و فارسی بخونم، برم از معتبرترین سازمان‌های جوی دنیا (ECMWF اروپا و GFS آمریکا) آمار واقعی بارش و دما رو بگیرم و بدون هیچ حدس و توهمی، وضعیت واقعی هوا رو بهت بگم.',
+        text: 'من رفیق و دستیار هوای ایرانم! 🌤️\nکارت اینه که هر سوالی داری به زبون خودمونی بپرسی؛ منم می‌پرم از ماهواره‌های اروپایی و آمریکایی دیتای واقعی بارون و دما رو برات می‌کشم بیرون تا با خیال راحت برنامه‌ریزی کنی.',
         cardsHtml: '',
-        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'وضع هوای شیراز در ماه آینده', 'هوای تهران']
+        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'شیراز تو ماه آینده', 'هوای تهران']
       });
       btnSend.disabled = false;
       return;
@@ -802,7 +802,7 @@ async function handleUserSubmit(queryText) {
     // سوال‌های متفرقه و خارج از حوزه آب‌وهوا
     if (parsed.type === 'irrelevant') {
       appendAssistantMessage({
-        text: 'راستش من تخصصم فقط و فقط آب‌وهوا و پیش‌بینی باران و دماست! 😄\nدر مورد این موضوع اطلاعی ندارم، ولی اگه خواستی بدونی فردا هوا چطوره، چتر لازمه یا جاده‌ها برفیه، در خدمتم! 🌦️',
+        text: 'قربونت برم، من تخصصم فقط و فقط آب‌وهوا و بارون و سرماست! 😄\nتوی این موضوع‌ها اصلاً سر در نمیارم، ولی اگه خواستی بدونی فردا هوا چطوره یا جاده چالوس بارونیه یا نه، رو من حساب کن! 🌦️',
         cardsHtml: '',
         suggestions: ['فردا تهران بارون میاد؟', '۵ تا ۹ مهر چالوس چطوره؟', 'آخر هفته اصفهان']
       });
@@ -813,7 +813,7 @@ async function handleUserSubmit(queryText) {
     // سوال هواشناسی بدون اسم شهر
     if (parsed.type === 'missing_city') {
       appendAssistantMessage({
-        text: 'می‌خوای هوای کدوم شهر رو بدونی؟ لطفاً اسم شهر رو هم در پیامت بنویس (مثلاً: **فردا تهران بارون میاد؟** یا **هوای اصفهان تا آخر هفته**) تا دقیق برات چک کنم.',
+        text: 'نگفتی هوای کدوم شهرو می‌خوای رفیق؟ اسم شهر رو هم تو پیامت بنویس (مثلاً: **فردا تهران بارون میاد؟** یا **هوای اصفهان تا آخر هفته**) تا سریع چک کنم برات.',
         cardsHtml: '',
         suggestions: ['فردا تهران بارون میاد؟', '۵ تا ۹ مهر چالوس', 'آخر هفته مشهد']
       });
@@ -829,7 +829,7 @@ async function handleUserSubmit(queryText) {
 
     if (!loc) {
       appendAssistantMessage({
-        text: `متوجه نشدم منظورت کدوم شهره! لطفاً اسم شهر (مثلاً چالوس، رشت، تهران...) رو هم بنویس تا مختصاتش رو برات پیدا کنم.`,
+        text: `متوجه نشدم منظورت دقیقاً کدوم شهره! اسم شهر (مثلاً چالوس، رشت، تهران...) رو هم بنویس تا سریع مختصاتشو پیدا کنم.`,
         cardsHtml: '',
         suggestions: ['۵ تا ۹ مهر چالوس', 'هوای فردا تهران', 'آخر هفته اصفهان']
       });
@@ -847,7 +847,7 @@ async function handleUserSubmit(queryText) {
   } catch (err) {
     console.error('Processing error:', err);
     appendAssistantMessage({
-      text: 'متأسفانه در اتصال به سامانه‌ی هواشناسی مشکلی پیش اومد. لطفاً چند لحظه بعد دوباره امتحان کن.',
+      text: 'ای بابا! انگار تو اتصال به ماهواره‌ها یه گیر کوچیک پیش اومد. یه چند ثانیه دیگه دوباره بپرس تا ردیفش کنم.',
       cardsHtml: '',
       suggestions: ['چالوس چطوره؟', 'هوای تهران']
     });
