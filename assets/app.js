@@ -183,6 +183,50 @@ const NUMBER_WORDS = {
   'سی ام': 30,  'سی و یکم': 31, '۳۱': 31, '31': 31
 };
 
+// کلماتی که هیچ‌وقت اسم شهر نیستند — هرچی از جمله بماند، کاندیدای شهر است.
+// ساده و بدون NLP واقعی: فقط یک لیست حذفی
+const STOPWORDS = new Set([
+  // هواشناسی
+  'بارون', 'باران', 'بارش', 'چتر', 'خیس', 'رگبار', 'برف', 'سرد', 'گرم', 'دما', 'درجه',
+  'خنک', 'یخ', 'طوفان', 'باد', 'ابر', 'ابری', 'آفتاب', 'آفتابی', 'مه', 'هوا', 'آب',
+  // زمان و نسبت
+  'امروز', 'فردا', 'پسفردا', 'پس', 'دیروز', 'هفته', 'آینده', 'بعد', 'آخر', 'ماه', 'روز',
+  'روزه', 'دیگه', 'دیگر', 'الان', 'حالا', 'صبح', 'ظهر', 'عصر', 'شب', 'بخیر',
+  // پرسش و فعل
+  'چطوره', 'چطوریه', 'چطوری', 'چیه', 'چیست', 'هست', 'داریم', 'دارم', 'داره', 'دارن',
+  'میشه', 'میاد', 'میاره', 'بشه', 'بگو', 'آیا', 'کی', 'چند', 'چقدر', 'میخوام', 'می‌خوام',
+  'وضعیت', 'شرایط', 'پیش‌بینی', 'پیشبینی',
+  // حرف ربط و ضمیر
+  'و', 'یا', 'که', 'این', 'آن', 'با', 'از', 'به', 'تا', 'رو', 'را', 'هم', 'در', 'تو',
+  'ما', 'شما', 'اونجا', 'اینجا', 'برای', 'واسه', 'الی', 'یک', 'می',
+]);
+
+function extractCityCandidate(norm) {
+  const tokens = norm
+    .replace(/[؟?!.,،]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const candidates = tokens.filter(t =>
+    t.length > 2 &&
+    !STOPWORDS.has(t) &&
+    !PERSIAN_MONTHS.includes(t) &&
+    !(t in NUMBER_WORDS)
+  );
+  if (candidates.length === 0) return null;
+
+  // اگر یکی از کاندیدها خودش تو لیست شهرهاست، همان قطعی‌ترین انتخاب است
+  const localHit = candidates.find(cand =>
+    POPULAR_CITIES.some(c => c.name === cand || cand.includes(c.name) || c.name.includes(cand)));
+  if (localHit) {
+    const c = POPULAR_CITIES.find(c => c.name === localHit || localHit.includes(c.name) || c.name.includes(localHit));
+    return c.name;
+  }
+
+  // وگرنه اولین کلمه‌ی باقی‌مانده را به‌عنوان کاندیدا به geocoding آنلاین می‌سپاریم
+  return candidates[0];
+}
+
 function parseQuery(text) {
   const norm = text.replace(/[\u064B-\u065F]/g, '').trim(); // Remove Arabic diacritics
   const now = new Date();
@@ -216,7 +260,7 @@ function parseQuery(text) {
   if (/بارون|باران|بارش|چتر|خیس|رگبار/i.test(norm)) userIntent = 'rain';
   else if (/سرد|گرم|دما|درجه|خنک|یخ/i.test(norm)) userIntent = 'temp';
 
-  // 1. تشخیص شهر
+  // 1. تشخیص شهر — اول از لیست پرکاربردها
   for (const c of POPULAR_CITIES) {
     const reg = new RegExp(`(^|[\\s،,\\?])${c.name}([\\s،,\\?]|$)`, 'i');
     if (reg.test(norm)) {
@@ -225,15 +269,12 @@ function parseQuery(text) {
     }
   }
 
-  // اگر شهر پیدا نشد، چک کردن الگوی «در [شهر]» یا «هوای [شهر]»
+  // اگر تو لیست نبود (مثل کوهدشت) — به‌جای نیاز به کلمه‌ی محرکِ خاص («در»/«هوای»/...)
+  // هر کلمه‌ای که هواشناسی، تاریخ، عدد یا حرف ربط نیست را کاندیدای اسم شهر می‌گیریم؛
+  // این‌جوری «کوهدشت امروز بارون میاد؟» هم بدون کلمه‌ی محرک کار می‌کند
   if (!targetCity) {
-    const cityMatch = norm.match(/(?:در|هوای|وضعیت|شهر|برای)\s+([آ-یa-zA-Z\s]{3,15})/);
-    if (cityMatch && cityMatch[1]) {
-      const candidate = cityMatch[1].trim().split(/\s+/)[0];
-      if (candidate.length > 2 && !PERSIAN_MONTHS.includes(candidate)) {
-        targetCity = candidate;
-      }
-    }
+    const candidate = extractCityCandidate(norm);
+    if (candidate) targetCity = candidate;
   }
 
   // اگر سوال نه به آب‌وهوا ربط داشت، نه اسم شهری داشت و نه کلمه‌ی هوایی:
@@ -396,6 +437,12 @@ function toIsoDate(d) {
   return `${y}-${m}-${day}`;
 }
 
+// سه مدل عددی مستقل — اروپا (ECMWF)، آمریکا (GFS)، آلمان (ICON).
+// به‌جای یک عدد از یک مدل، هر روز را هر سه مدل جدا پیش‌بینی می‌کنند و
+// «چند مدل از ۳ تا با هم موافقند» جای درصدِ ساختگی را می‌گیرد.
+const ENSEMBLE_MODELS = ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'];
+const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+
 async function fetchWeatherData(lat, lon, startDate, endDate) {
   const now = new Date();
   const startIso = toIsoDate(startDate);
@@ -406,14 +453,16 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
   const diffDaysEnd = Math.round((new Date(endIso) - new Date(todayIso)) / (24 * 3600 * 1000));
   const diffDaysStart = Math.round((new Date(startIso) - new Date(todayIso)) / (24 * 3600 * 1000));
 
-  // اگر بازه در محدوده ۱۶ روز آینده باشد، حتماً از Forecast API با مدل‌های زنده استفاده می‌کنیم
+  // اگر بازه در محدوده ۱۶ روز آینده باشد، از Forecast API با سه مدل مستقل استفاده می‌کنیم
   if (diffDaysEnd < 16 && diffDaysStart >= 0) {
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,windspeed_10m_max&forecast_days=16&timezone=auto`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
+        `&models=${ENSEMBLE_MODELS.join(',')}&forecast_days=16&timezone=auto`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Forecast HTTP error ${res.status}`);
       const data = await res.json();
-      
+
       const daily = data.daily;
       const days = [];
 
@@ -422,16 +471,31 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
         // مقایسه مستقیم و بدون خطای تایم‌زون
         if (timeIso >= startIso && timeIso <= endIso) {
           const dObj = new Date(timeIso + 'T00:00:00');
-          const wmo = getWmoInfo(daily.weathercode[i]);
+
+          // مقدار هر مدل برای این روز — اگر مدلی دیتا نداشت (null) نادیده گرفته می‌شود
+          const perModel = ENSEMBLE_MODELS.map(m => ({
+            maxT: daily[`temperature_2m_max_${m}`]?.[i],
+            minT: daily[`temperature_2m_min_${m}`]?.[i],
+            precip: daily[`precipitation_sum_${m}`]?.[i] ?? 0,
+            wmo: daily[`weather_code_${m}`]?.[i],
+          })).filter(m => m.maxT != null && m.minT != null);
+
+          if (perModel.length === 0) continue;
+
+          const agree = perModel.filter(m => m.precip >= 0.5).length;
+          // آیکون/توصیف از مدلِ اروپایی (ECMWF) به‌عنوان مرجعِ اصلی
+          const wmo = getWmoInfo(perModel[0].wmo);
+
           days.push({
             date: dObj,
             iso: timeIso,
             jalali: getJalaliDateStr(dObj),
-            maxTemp: Math.round(daily.temperature_2m_max[i]),
-            minTemp: Math.round(daily.temperature_2m_min[i]),
-            precipSum: Math.round(daily.precipitation_sum[i] * 10) / 10,
-            precipProb: daily.precipitation_probability_max ? daily.precipitation_probability_max[i] : null,
-            windMax: Math.round(daily.windspeed_10m_max[i]),
+            maxTemp: Math.round(avg(perModel.map(m => m.maxT))),
+            minTemp: Math.round(avg(perModel.map(m => m.minT))),
+            precipSum: Math.round(avg(perModel.map(m => m.precip)) * 10) / 10,
+            modelsAgree: agree,
+            modelsTotal: perModel.length,
+            windMax: null,
             desc: wmo.desc,
             icon: wmo.icon,
             isEstimate: false
@@ -443,7 +507,7 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
         return {
           type: 'exact',
           days,
-          source: 'مدل‌های ترکیبی جهانی (ECMWF / GFS)'
+          source: `میانگین ${ENSEMBLE_MODELS.length} مدل عددی مستقل (ECMWF · GFS · ICON)`
         };
       }
     } catch (e) {
@@ -451,10 +515,9 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
     }
   }
 
-  // اگر فراتر از ۱۶ روز باشد یا در بازه ۳۰ روزه ماهانه (مشابه AccuWeather Monthly Trend):
-  // از ترکیب آرشیو اقلیمی سال اخیر برای همان بازه تاریخی استفاده می‌کنیم
+  // فراتر از ۱۶ روز، هیچ مدل عددیِ قابل‌اتکایی وجود ندارد — این پیش‌بینی نیست،
+  // فقط هوای واقعیِ سالِ قبل در همین بازه‌ی تقویمی است، صادقانه با همین برچسب
   try {
-    // تاریخ متناظر در سال قبل برای همان بازه روز
     const pastYearStart = new Date(startDate);
     pastYearStart.setFullYear(pastYearStart.getFullYear() - 1);
     const pastYearEnd = new Date(endDate);
@@ -463,7 +526,7 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
     const sIso = pastYearStart.toISOString().split('T')[0];
     const eIso = pastYearEnd.toISOString().split('T')[0];
 
-    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${sIso}&end_date=${eIso}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode&timezone=auto`;
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${sIso}&end_date=${eIso}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=auto`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Archive HTTP error ${res.status}`);
     const data = await res.json();
@@ -473,7 +536,7 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
     for (let i = 0; i < daily.time.length; i++) {
       // تاریخ واقعی هدف امسال
       const targetDate = new Date(startDate.getTime() + (i * 24 * 3600 * 1000));
-      const wmo = getWmoInfo(daily.weathercode[i] || 2);
+      const wmo = getWmoInfo(daily.weather_code[i] ?? 2);
       const precip = Math.round((daily.precipitation_sum[i] || 0) * 10) / 10;
       days.push({
         date: targetDate,
@@ -482,8 +545,10 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
         maxTemp: Math.round(daily.temperature_2m_max[i]),
         minTemp: Math.round(daily.temperature_2m_min[i]),
         precipSum: precip,
-        precipProb: precip > 1 ? 65 : (precip > 0 ? 35 : 10),
-        windMax: 12,
+        // بدون درصدِ ساختگی — یک نمونه‌ی تاریخیِ تک‌ساله عدد احتمال معنادار تولید نمی‌کند
+        modelsAgree: null,
+        modelsTotal: null,
+        windMax: null,
         desc: wmo.desc,
         icon: wmo.icon,
         isEstimate: true
@@ -491,9 +556,9 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
     }
 
     return {
-      type: 'monthly',
+      type: 'historical',
       days,
-      source: 'ترند اقلیمی و ماهانه (AccuWeather-Style Climate Model)'
+      source: 'هوای واقعیِ سالِ قبل در همین تاریخ‌ها (نه پیش‌بینی مدل)'
     };
   } catch (err) {
     console.error('All weather fetches failed:', err);
@@ -514,7 +579,7 @@ function generateAssistantResponse(parsed, weatherResult, location) {
   }
 
   const days = weatherResult.days;
-  const isExact = weatherResult.type === 'exact';
+  const isExact = weatherResult.type === 'exact';   // سه‌مدله و زنده، نه تاریخی
 
   // تحلیل کلی وضعیت
   const maxTemps = days.map(d => d.maxTemp);
@@ -522,20 +587,29 @@ function generateAssistantResponse(parsed, weatherResult, location) {
   const highestTemp = Math.max(...maxTemps);
   const lowestTemp = Math.min(...minTemps);
   const totalRain = Math.round(days.reduce((acc, d) => acc + d.precipSum, 0) * 10) / 10;
-  const rainyDays = days.filter(d => d.precipSum >= 0.5 || (d.precipProb && d.precipProb >= 40));
+  // «بارونی» یعنی: تو بازه‌ی ۱۶روزه، اکثریتِ سه مدل موافقند؛ تو بازه‌ی تاریخی، فقط مقدار واقعی
+  const rainyDays = days.filter(d =>
+    isExact ? d.modelsAgree >= Math.ceil(d.modelsTotal / 2) : d.precipSum >= 0.5);
 
   let summaryText = '';
-  const dateRangeStr = days.length === 1 
-    ? days[0].jalali.full 
+  const dateRangeStr = days.length === 1
+    ? days[0].jalali.full
     : `بازه‌ی ${days[0].jalali.short} تا ${days[days.length - 1].jalali.short}`;
+
+  // سیگنالِ اطمینان: فقط تو بازه‌ی سه‌مدله معنا دارد؛ تو بازه‌ی تاریخی چیزی برای گفتن نیست
+  const agreementNote = isExact
+    ? (day => day.modelsAgree === day.modelsTotal
+        ? ' (هر ۳ مدل موافقند)'
+        : ` (${day.modelsAgree} از ${day.modelsTotal} مدل موافقند)`)
+    : (() => '');
 
   // لحن کاملاً محاوره‌ای، خودمونی و رفاقتی
   if (parsed.userIntent === 'rain') {
     if (rainyDays.length > 0) {
       const peakRainDay = [...days].sort((a, b) => b.precipSum - a.precipSum)[0];
       summaryText = `آره رفیق، تو ${dateRangeStr} تو **${location.name}** بارون داریم! 🌧️\n\n` +
-        `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})** با حدود **${peakRainDay.precipSum} میلی‌متر** و احتمال **${peakRainDay.precipProb || 70}٪**. ` +
-        `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون پیش‌بینی شده. اگه قصد رفتن داری، چتر و لباس بارونی حتماً همراهت باشه!`;
+        `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})** با حدود **${peakRainDay.precipSum} میلی‌متر**${agreementNote(peakRainDay)}. ` +
+        `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون تخمین زده شده. اگه قصد رفتن داری، چتر و لباس بارونی حتماً همراهت باشه!`;
     } else {
       summaryText = `خیالت تخت تخت! تو ${dateRangeStr} تو **${location.name}** اصلاً خبری از بارون جدی نیست و هوا صاف یا فوقش کمی ابریه. ☀️`;
     }
@@ -547,16 +621,16 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     // حالت عمومی (General Intent)
     if (rainyDays.length > 0) {
       summaryText = `تو ${dateRangeStr} هوای **${location.name}** یکم ناپایداره و بارون داریم 🌦️\n\n` +
-        `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره شانس بارندگی بالاست و کلاً حدود **${totalRain} میلی‌متر** بارون تخمین زده شده.`;
+        `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده.`;
     } else {
       summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
         `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
     }
   }
 
-  // توضیح در مورد مدل پیش‌بینی به زبان خودمونی (فقط وقتی واقعاً بازه فراتر از ۱۶ روز باشد)
+  // فراتر از ۱۶ روز: صادقانه بگو این پیش‌بینی نیست، تکرارِ هوای سالِ قبل است
   if (!isExact && parsed.isLongRange) {
-    summaryText += `\n\n*(💡 راستی چون این تاریخ بیشتر از ۱۶ روز دیگه است، مدل‌های ساعتی قطعی هنوز فعال نشدن؛ واسه همین این پیش‌بینی رو بر اساس میانگین هوای همین روزها تو سال‌های اخیر برات درآوردم — دقیقاً مثل کاری که اکیوودر می‌کنه!)*`;
+    summaryText += `\n\n*(💡 راستی این تاریخ بیشتر از ۱۶ روز دیگه‌ست و هیچ مدل هواشناسی این‌قدر جلوتر رو قطعی پیش‌بینی نمی‌کنه. این عددها پیش‌بینی نیستن — دقیقاً همون چیزیه که پارسال تو همین روزها اتفاق افتاده، فقط برای یه حسِ کلی از فصل.)*`;
   }
 
   // ساخت کارت‌های تعاملی روزانه
@@ -571,7 +645,7 @@ function generateAssistantResponse(parsed, weatherResult, location) {
           </div>
         </div>
         <span class="weather-badge ${isExact ? 'badge-exact' : 'badge-monthly'}">
-          ${isExact ? '⚡ پیش‌بینی دقیق ماهواره‌ای' : '🗓️ ترند ماهانه (مثل اکیوودر)'}
+          ${isExact ? '⚡ سه مدل عددی مستقل' : '📜 هوای سالِ قبل (نه پیش‌بینی)'}
         </span>
       </div>
 
@@ -580,6 +654,9 @@ function generateAssistantResponse(parsed, weatherResult, location) {
 
   days.forEach((day, idx) => {
     const isToday = idx === 0 && Math.abs(day.date - new Date()) < 24 * 3600 * 1000;
+    const precipTitle = isExact
+      ? `${day.modelsAgree} از ${day.modelsTotal} مدل بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`
+      : `هوای واقعیِ سالِ قبل - حجم ${day.precipSum} mm`;
     cardsHtml += `
       <div class="day-card ${isToday ? 'is-today' : ''}">
         <span class="day-card-name">${isToday ? 'امروز' : day.jalali.weekday}</span>
@@ -590,9 +667,9 @@ function generateAssistantResponse(parsed, weatherResult, location) {
           <span class="temp-min">${day.minTemp}°</span>
         </div>
         ${day.precipSum > 0 ? `
-          <div class="day-card-precip" title="احتمال ${day.precipProb || 60}٪ - حجم ${day.precipSum} mm">
+          <div class="day-card-precip" title="${precipTitle}">
             <span>💧</span>
-            <span>${day.precipSum}mm</span>
+            <span>${day.precipSum}mm${isExact ? ` (${day.modelsAgree}/${day.modelsTotal})` : ''}</span>
           </div>
         ` : `
           <span class="day-card-desc">${day.desc.split(' ')[0]}</span>
@@ -604,9 +681,9 @@ function generateAssistantResponse(parsed, weatherResult, location) {
   cardsHtml += `
       </div>
       <div class="weather-audit-bar">
-        <span class="audit-badge">🛡️ مدل محاسباتی ${weatherResult.source}</span>
+        <span class="audit-badge">🛡️ منبع: ${weatherResult.source}</span>
         <a href="https://open-meteo.com/en/docs#latitude=${location.lat}&longitude=${location.lon}" target="_blank" rel="noopener" class="audit-link" title="مشاهده داکیومنت و داده‌های خام بدون واسطه">
-          🔍 راست‌آزمایی و مشاهده داده‌های خام ماهواره‌ای
+          🔍 راست‌آزمایی و مشاهده داده‌های خام
         </a>
       </div>
     </div>
@@ -697,7 +774,7 @@ function appendAssistantMessage(data) {
     <div class="msg-avatar">🌤️</div>
     <div class="msg-body">
       <div class="msg-bubble">
-        <div style="white-space: pre-line; margin-bottom: 8px;">${data.text}</div>
+        <div style="white-space: pre-line; margin-bottom: 8px;">${renderAssistantText(data.text)}</div>
         ${data.cardsHtml || ''}
       </div>
   `;
@@ -731,6 +808,12 @@ function escapeHtml(str) {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+}
+
+// متن پاسخ اول escape می‌شود (امن) بعد فقط **بولد** به <strong> تبدیل می‌شود —
+// قبلاً escape اصلاً انجام نمی‌شد و ستاره‌های ** هم خام روی صفحه چاپ می‌شدند
+function renderAssistantText(str) {
+  return escapeHtml(str).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
 // رندر پیام آغازین (Welcome message)
