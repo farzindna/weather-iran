@@ -472,6 +472,12 @@ body::before {
   margin-top: 2px;
 }
 
+/* ۰٪ هم نشون داده می‌شه (سؤال همینه) ولی نباید مثل هشدار به‌نظر برسه */
+.day-card-precip.is-zero {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .day-card-desc {
   font-size: 11px;
   color: var(--text-dim);

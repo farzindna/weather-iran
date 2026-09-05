@@ -126,19 +126,21 @@ async function resolveLocation(cityName) {
   const match = POPULAR_CITIES.find(c => c.name === clean || clean.includes(c.name) || c.name.includes(clean));
   if (match) return match;
 
-  // ۲. در صورت نبود، ژئوکودینگ آنلاین از Open-Meteo
+  // ۲. در صورت نبود، ژئوکودینگ آنلاین از Open-Meteo — چند نتیجه می‌گیریم و
+  // فقط ایران را قبول می‌کنیم؛ وگرنه یه کلمه‌ی ناقص مثل «هوای» می‌تونه با
+  // یه شهر چینی (هوایبی، آنهویی) اشتباه گرفته بشه (یه‌بار واقعاً افتاد)
   try {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=1&language=fa&format=json`;
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=5&language=fa&format=json`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    if (data.results && data.results.length > 0) {
-      const top = data.results[0];
+    const top = data.results?.find(r => r.country_code === 'IR');
+    if (top) {
       return {
         name: top.name,
         lat: top.latitude,
         lon: top.longitude,
-        province: top.admin1 || top.country || 'ایران'
+        province: top.admin1 || 'ایران'
       };
     }
   } catch (e) {
@@ -201,6 +203,15 @@ const STOPWORDS = new Set([
   'ما', 'شما', 'اونجا', 'اینجا', 'برای', 'واسه', 'الی', 'یک', 'می',
 ]);
 
+// «هوای»، «دمای»، «بارونی» و مثل آن‌ها: کلمه‌ی هواشناسیِ شناخته‌شده + «ی»ِ
+// اضافه یا صفت‌ساز. یک بار «هوای» به‌جای فارغ ماندن، کاندیدای شهر شد و به
+// یه شهر چینی (هوایبی) گره خورد چون در STOPWORDS فقط ریشه‌ی «هوا» بود.
+function isStopword(t) {
+  if (STOPWORDS.has(t)) return true;
+  if (t.length > 3 && t.endsWith('ی') && STOPWORDS.has(t.slice(0, -1))) return true;
+  return false;
+}
+
 function extractCityCandidate(norm) {
   const tokens = norm
     .replace(/[؟?!.,،]/g, ' ')
@@ -209,7 +220,7 @@ function extractCityCandidate(norm) {
 
   const candidates = tokens.filter(t =>
     t.length > 2 &&
-    !STOPWORDS.has(t) &&
+    !isStopword(t) &&
     !PERSIAN_MONTHS.includes(t) &&
     !(t in NUMBER_WORDS)
   );
@@ -596,11 +607,10 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     ? days[0].jalali.full
     : `بازه‌ی ${days[0].jalali.short} تا ${days[days.length - 1].jalali.short}`;
 
-  // سیگنالِ اطمینان: فقط تو بازه‌ی سه‌مدله معنا دارد؛ تو بازه‌ی تاریخی چیزی برای گفتن نیست
+  // سیگنالِ اطمینان به‌شکل درصد: چند مدل از ۳ تا موافقند. فقط تو بازه‌ی
+  // سه‌مدله معنا دارد؛ تو بازه‌ی تاریخی درصدِ واقعی نداریم که بگیم
   const agreementNote = isExact
-    ? (day => day.modelsAgree === day.modelsTotal
-        ? ' (هر ۳ مدل موافقند)'
-        : ` (${day.modelsAgree} از ${day.modelsTotal} مدل موافقند)`)
+    ? (day => ` (${Math.round((day.modelsAgree / day.modelsTotal) * 100)}٪ احتمال)`)
     : (() => '');
 
   // لحن کاملاً محاوره‌ای، خودمونی و رفاقتی
@@ -617,8 +627,15 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     summaryText = `اوضاع دمای **${location.name}** تو ${dateRangeStr} اینطوریه:\n\n` +
       `گرم‌ترین ساعت‌ها تا **${highestTemp} درجه** می‌ره بالا و شب‌ها هم تا **${lowestTemp} درجه** خنک (یا سرد) می‌شه. ` +
       (lowestTemp < 10 ? 'شب‌ها و اول صبح قشنگ سرده، پس حواست باشه لباس گرم دم دستت بذاری!' : 'هوا در کل خیلی معتدل و باحاله و می‌چسبه برای گشت‌وگذار.');
+  } else if (days.length === 1) {
+    // یک روزِ تنها: احتمال بارش را همیشه صریح بگو، چه صفر باشه چه صد
+    const d = days[0];
+    const pct = isExact ? Math.round((d.modelsAgree / d.modelsTotal) * 100) : null;
+    const pctPhrase = pct !== null ? `احتمال بارش **${pct}٪**` : (d.precipSum > 0 ? 'بارونیه' : 'بارونی نیست');
+    summaryText = `${dateRangeStr} تو **${location.name}**: ${d.desc}، دما بین **${d.minTemp}° تا ${d.maxTemp}°**، ${pctPhrase}` +
+      (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') + '.';
   } else {
-    // حالت عمومی (General Intent)
+    // حالت عمومی (General Intent) — چند روز
     if (rainyDays.length > 0) {
       summaryText = `تو ${dateRangeStr} هوای **${location.name}** یکم ناپایداره و بارون داریم 🌦️\n\n` +
         `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده.`;
@@ -654,9 +671,30 @@ function generateAssistantResponse(parsed, weatherResult, location) {
 
   days.forEach((day, idx) => {
     const isToday = idx === 0 && Math.abs(day.date - new Date()) < 24 * 3600 * 1000;
+    // درصدِ احتمال بارش = چند مدل از ۳ تا موافقند؛ نه عددِ ساختگی، شمارشِ واقعیِ مدل‌هاست
+    const pct = isExact && day.modelsTotal ? Math.round((day.modelsAgree / day.modelsTotal) * 100) : null;
     const precipTitle = isExact
       ? `${day.modelsAgree} از ${day.modelsTotal} مدل بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`
       : `هوای واقعیِ سالِ قبل - حجم ${day.precipSum} mm`;
+
+    let precipBlock;
+    if (pct !== null) {
+      // بازه‌ی ۱۶روزه: همیشه درصد نشون بده، حتی صفر — چون سؤالِ اصلی همینه
+      precipBlock = `
+        <div class="day-card-precip${pct === 0 ? ' is-zero' : ''}" title="${precipTitle}">
+          <span>💧</span>
+          <span>${pct}٪${day.precipSum > 0 ? ` · ${day.precipSum}mm` : ''}</span>
+        </div>`;
+    } else if (day.precipSum > 0) {
+      // بازه‌ی تاریخی: درصدِ واقعی نداریم، فقط مقدارِ واقعیِ سالِ قبل
+      precipBlock = `
+        <div class="day-card-precip" title="${precipTitle}">
+          <span>💧</span><span>${day.precipSum}mm</span>
+        </div>`;
+    } else {
+      precipBlock = `<span class="day-card-desc">${day.desc.split(' ')[0]}</span>`;
+    }
+
     cardsHtml += `
       <div class="day-card ${isToday ? 'is-today' : ''}">
         <span class="day-card-name">${isToday ? 'امروز' : day.jalali.weekday}</span>
@@ -666,14 +704,7 @@ function generateAssistantResponse(parsed, weatherResult, location) {
           <span class="temp-max">${day.maxTemp}°</span>
           <span class="temp-min">${day.minTemp}°</span>
         </div>
-        ${day.precipSum > 0 ? `
-          <div class="day-card-precip" title="${precipTitle}">
-            <span>💧</span>
-            <span>${day.precipSum}mm${isExact ? ` (${day.modelsAgree}/${day.modelsTotal})` : ''}</span>
-          </div>
-        ` : `
-          <span class="day-card-desc">${day.desc.split(' ')[0]}</span>
-        `}
+        ${precipBlock}
       </div>
     `;
   });
@@ -825,7 +856,7 @@ function renderWelcomeMessage() {
     <div class="msg-avatar">🌤️</div>
     <div class="msg-body">
       <div class="welcome-card">
-        <div class="welcome-title">سلام فرزین جان! چطوری رفیق؟ 👋</div>
+        <div class="welcome-title">سلام رفیق! چطوری؟ 👋</div>
         <div class="welcome-desc">
           دیگه لازم نیست با نقشه‌های شلوغ و لایه‌های گنگ سر و کله بزنی! هر شهری رو با هر تاریخی که می‌خوای بهم بگو؛ از فردا تا ماه آینده، خودم می‌پرم از ماهواره‌ها چک می‌کنم و بهت می‌گم بارون میاد، چتر لازمه یا هوا سرده.
         </div>
@@ -869,7 +900,7 @@ async function handleUserSubmit(queryText) {
     // پاسخ به احوال‌پرسی
     if (parsed.type === 'greeting') {
       appendAssistantMessage({
-        text: 'سلام فرزین جان! 👋 چطوری رفیق؟ همه‌چی روبه‌راهه؟\nبگو ببینم هوای کدوم شهرو می‌خوای برات بسنجم؟ (از فردا تا ماه آینده هر جا بخوای آماده‌ام!)',
+        text: 'سلام رفیق! 👋 چطوری؟ همه‌چی روبه‌راهه؟\nبگو ببینم هوای کدوم شهرو می‌خوای برات بسنجم؟ (از فردا تا ماه آینده هر جا بخوای آماده‌ام!)',
         cardsHtml: '',
         suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'فردا تهران بارون میاد؟', 'آخر هفته رامسر چطوره؟']
       });
