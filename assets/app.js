@@ -477,9 +477,13 @@ function findRainWindow(hourly, dayIso) {
     }
   }
   if (start === null) return null;
+  const startHour = parseInt(hourly.time[start].slice(11, 13), 10);
+  const endHour = parseInt(hourly.time[end].slice(11, 13), 10) + 1;
   return {
-    startHour: parseInt(hourly.time[start].slice(11, 13), 10),
-    endHour: parseInt(hourly.time[end].slice(11, 13), 10) + 1,
+    startHour, endHour,
+    // وقتی بارش تقریباً کلِ روز طول می‌کشد، «بین ساعتِ ۰ تا ۲۱» چیزی به کسی
+    // نمی‌گه — گفتنِ «تقریباً کل روز» مفیدتره از یه بازه‌ی کاذبِ دقیق‌نما
+    allDay: (endHour - startHour) >= 18,
   };
 }
 
@@ -525,8 +529,16 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
           if (perModel.length === 0) continue;
 
           const agree = perModel.filter(m => m.precip >= 0.5).length;
-          // آیکون/توصیف از مدلِ اروپایی (ECMWF) به‌عنوان مرجعِ اصلی
-          const wmo = getWmoInfo(perModel[0].wmo);
+          // آیکون باید با درصدی که نشون می‌دیم یکی باشه — قبلاً همیشه از
+          // ECMWF تنها می‌اومد، پس ممکن بود بگیم «۶۷٪ بارون» ولی آیکون آفتابی
+          // بمونه (چون فقط دوتای دیگه بارون می‌گفتن، نه ECMWF). حالا: اگه
+          // اکثریتِ مدل‌ها روی بارون توافق دارن، آیکون از میانِ همون‌ها میاد
+          const majority = Math.ceil(perModel.length / 2);
+          const rainingModels = perModel.filter(m => m.precip >= 0.5);
+          const refModel = agree >= majority
+            ? rainingModels.sort((a, b) => b.precip - a.precip)[0]
+            : perModel[0];
+          const wmo = getWmoInfo(refModel.wmo);
 
           days.push({
             date: dObj,
@@ -625,11 +637,13 @@ function generateAssistantResponse(parsed, weatherResult, location) {
   const days = weatherResult.days;
   const isExact = weatherResult.type === 'exact';   // سه‌مدله و زنده، نه تاریخی
 
-  // تحلیل کلی وضعیت
+  // تحلیل کلی وضعیت — میانگینِ روزها، نه سردترینِ یه روز کنارِ گرم‌ترینِ یه روزِ
+  // دیگه (اون‌جوری قبلاً «بین ۱۷ تا ۳۷» درمی‌اومد که هیچ روزی واقعاً این‌قدر
+  // نوسان نداشت، فقط دو تا روزِ مختلف قاطی شده بودن)
   const maxTemps = days.map(d => d.maxTemp);
   const minTemps = days.map(d => d.minTemp);
-  const highestTemp = Math.max(...maxTemps);
-  const lowestTemp = Math.min(...minTemps);
+  const highestTemp = Math.round(avg(maxTemps));
+  const lowestTemp = Math.round(avg(minTemps));
   const totalRain = Math.round(days.reduce((acc, d) => acc + d.precipSum, 0) * 10) / 10;
   // «بارونی» یعنی: تو بازه‌ی ۱۶روزه، اکثریتِ سه مدل موافقند؛ تو بازه‌ی تاریخی، فقط مقدار واقعی
   const rainyDays = days.filter(d =>
@@ -647,17 +661,20 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     : (() => '');
 
   // ساعتِ تقریبیِ شروع/پایانِ بارش، وقتی داریمش — فقط بازه‌ی سه‌مدله
-  const timePhrase = day => day.rainWindow
-    ? ` بین ساعتِ **${day.rainWindow.startHour} تا ${day.rainWindow.endHour}**`
-    : '';
+  const timePhrase = day => {
+    if (!day.rainWindow) return '';
+    if (day.rainWindow.allDay) return ' تقریباً تمامِ روز';
+    return ` بین ساعتِ **${day.rainWindow.startHour} تا ${day.rainWindow.endHour}**`;
+  };
 
   // لحن کاملاً محاوره‌ای، خودمونی و رفاقتی
   if (parsed.userIntent === 'rain') {
     if (rainyDays.length > 0) {
       const peakRainDay = [...days].sort((a, b) => b.precipSum - a.precipSum)[0];
-      summaryText = `آره رفیق، تو ${dateRangeStr} تو **${location.name}** بارون داریم! 🌧️\n\n` +
+      summaryText = `آره رفیق، تو ${dateRangeStr} تو **${location.name}** بارون داریم! 🌧️ حالشو ببر.\n\n` +
         `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})**${timePhrase(peakRainDay)} با حدود **${peakRainDay.precipSum} میلی‌متر**${agreementNote(peakRainDay)}. ` +
-        `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون تخمین زده شده. اگه قصد رفتن داری، چتر و لباس بارونی حتماً همراهت باشه!`;
+        `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون تخمین زده شده. ` +
+        `عالیه واسه یه دور زدنِ باحال با ماشین — فقط اول ترافیک رو چک کن، بعد بزن بیرون! چتر و لباس بارونی هم یادت نره.`;
     } else {
       summaryText = `خیالت تخت تخت! تو ${dateRangeStr} تو **${location.name}** اصلاً خبری از بارون جدی نیست و هوا صاف یا فوقش کمی ابریه. ☀️`;
     }
@@ -672,12 +689,14 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     const pctPhrase = pct !== null ? `احتمال بارش **${pct}٪**` : (d.precipSum > 0 ? 'بارونیه' : 'بارونی نیست');
     summaryText = `${dateRangeStr} تو **${location.name}**: ${d.desc}، دما بین **${d.minTemp}° تا ${d.maxTemp}°**، ${pctPhrase}` +
       (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') +
-      (d.rainWindow ? ` — احتمالاً${timePhrase(d)} می‌باره` : '') + '.';
+      (d.rainWindow ? (d.rainWindow.allDay ? ' — تقریباً تمامِ روز می‌باره' : ` — احتمالاً${timePhrase(d)} می‌باره`) : '') + '.' +
+      (pct !== null && pct >= 50 ? ' یه بهونه‌ی خوب واسه یه دور زدنِ باحال — فقط اول ترافیک رو چک کن!' : '');
   } else {
     // حالت عمومی (General Intent) — چند روز
     if (rainyDays.length > 0) {
       summaryText = `تو ${dateRangeStr} هوای **${location.name}** یکم ناپایداره و بارون داریم 🌦️\n\n` +
-        `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده.`;
+        `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده. ` +
+        `هوای ابری و بارونی رو دوست داری؟ فرصتِ خوبیه واسه یه گشت‌وگذارِ باحال با ماشین — فقط قبلش یه نگاه به ترافیک بنداز!`;
     } else {
       summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
         `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
@@ -718,7 +737,7 @@ function generateAssistantResponse(parsed, weatherResult, location) {
 
     // ساعتِ تقریبیِ شروعِ بارش — فقط وقتی چیزی برای گفتن هست
     const timeLine = day.rainWindow
-      ? `<div class="day-card-time">🕐 ${day.rainWindow.startHour} تا ${day.rainWindow.endHour}</div>`
+      ? `<div class="day-card-time">🕐 ${day.rainWindow.allDay ? 'تقریباً تمامِ روز' : `${day.rainWindow.startHour} تا ${day.rainWindow.endHour}`}</div>`
       : '';
 
     let precipBlock;
@@ -906,11 +925,10 @@ function renderWelcomeMessage() {
         </div>
         <div class="chips-title">پرسش‌های سریع و آماده (فقط روشون بزن):</div>
         <div class="chips-grid">
-          <button class="chip-btn" data-query="هوای امروز تهران چطوره؟">☀️ امروز تهران چطوره؟</button>
-          <button class="chip-btn" data-query="فردا تهران بارون میاد؟">☔ فردا تهران بارون میاد؟</button>
+          <button class="chip-btn" data-query="سه روز تهران چطوره؟">🏙️ سه روز تهران چطوره؟</button>
+          <button class="chip-btn" data-query="سه روز کوهدشت چطوره؟">🏔️ سه روز کوهدشت چطوره؟</button>
+          <button class="chip-btn" data-query="سه روز نوشهر چطوره؟">🌊 سه روز نوشهر چطوره؟</button>
           <button class="chip-btn" data-query="پس‌فردا چالوس بارون داریم؟">🏖️ پس‌فردا چالوس بارونیه؟</button>
-          <button class="chip-btn" data-query="آخر هفته تبریز سرده؟">❄️ آخر هفته تبریز سرده؟</button>
-          <button class="chip-btn" data-query="فردا مشهد هوا چطوره؟">🌤️ فردا مشهد چطوره؟</button>
         </div>
       </div>
     </div>
