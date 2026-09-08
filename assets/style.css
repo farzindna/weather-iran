@@ -478,6 +478,14 @@ body::before {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.day-card-time {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  /* عمداً بدون direction:ltr — متن فارسی («تا») و رقم قاطی‌اند؛
+     اجبارِ ltr ترتیبِ نمایش را به‌هم می‌ریخت («۲ ۳ تا» به‌جای «۲ تا ۳») */
+}
+
 .day-card-desc {
   font-size: 11px;
   color: var(--text-dim);

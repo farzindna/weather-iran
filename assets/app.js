@@ -454,6 +454,35 @@ function toIsoDate(d) {
 const ENSEMBLE_MODELS = ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'];
 const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
 
+// ساعتِ تقریبیِ شروع بارش برای یک روزِ مشخص: اولین بلوکِ ساعت‌هایی که حداقل
+// نصفِ مدل‌ها روش موافقند (≥ ۰٫۲ میلی‌متر). این مدل‌محوره (مثل خودِ AccuWeather
+// خارج از رادار)، نه رادارِ لحظه‌ای — دقتش در حدِ ساعت است نه دقیقه.
+function findRainWindow(hourly, dayIso) {
+  const idxs = hourly.time
+    .map((t, i) => (t.startsWith(dayIso) ? i : -1))
+    .filter(i => i !== -1);
+  if (idxs.length === 0) return null;
+
+  const series = ENSEMBLE_MODELS.map(m => hourly[`precipitation_${m}`] || []);
+  const need = Math.ceil(ENSEMBLE_MODELS.length / 2); // ≥۲ از ۳
+
+  let start = null, end = null;
+  for (const i of idxs) {
+    const agree = series.filter(s => (s[i] ?? 0) >= 0.2).length;
+    if (agree >= need) {
+      if (start === null) start = i;
+      end = i;
+    } else if (start !== null) {
+      break; // اولین بلوک تمام شد
+    }
+  }
+  if (start === null) return null;
+  return {
+    startHour: parseInt(hourly.time[start].slice(11, 13), 10),
+    endHour: parseInt(hourly.time[end].slice(11, 13), 10) + 1,
+  };
+}
+
 async function fetchWeatherData(lat, lon, startDate, endDate) {
   const now = new Date();
   const startIso = toIsoDate(startDate);
@@ -469,12 +498,14 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
     try {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
         `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
+        `&hourly=precipitation` +
         `&models=${ENSEMBLE_MODELS.join(',')}&forecast_days=16&timezone=auto`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Forecast HTTP error ${res.status}`);
       const data = await res.json();
 
       const daily = data.daily;
+      const hourly = data.hourly;
       const days = [];
 
       for (let i = 0; i < daily.time.length; i++) {
@@ -509,7 +540,8 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
             windMax: null,
             desc: wmo.desc,
             icon: wmo.icon,
-            isEstimate: false
+            isEstimate: false,
+            rainWindow: hourly ? findRainWindow(hourly, timeIso) : null
           });
         }
       }
@@ -562,7 +594,8 @@ async function fetchWeatherData(lat, lon, startDate, endDate) {
         windMax: null,
         desc: wmo.desc,
         icon: wmo.icon,
-        isEstimate: true
+        isEstimate: true,
+        rainWindow: null // ساعتِ دقیق برای نمونه‌ی تاریخیِ یک‌ساله معنا ندارد
       });
     }
 
@@ -613,12 +646,17 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     ? (day => ` (${Math.round((day.modelsAgree / day.modelsTotal) * 100)}٪ احتمال)`)
     : (() => '');
 
+  // ساعتِ تقریبیِ شروع/پایانِ بارش، وقتی داریمش — فقط بازه‌ی سه‌مدله
+  const timePhrase = day => day.rainWindow
+    ? ` بین ساعتِ **${day.rainWindow.startHour} تا ${day.rainWindow.endHour}**`
+    : '';
+
   // لحن کاملاً محاوره‌ای، خودمونی و رفاقتی
   if (parsed.userIntent === 'rain') {
     if (rainyDays.length > 0) {
       const peakRainDay = [...days].sort((a, b) => b.precipSum - a.precipSum)[0];
       summaryText = `آره رفیق، تو ${dateRangeStr} تو **${location.name}** بارون داریم! 🌧️\n\n` +
-        `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})** با حدود **${peakRainDay.precipSum} میلی‌متر**${agreementNote(peakRainDay)}. ` +
+        `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})**${timePhrase(peakRainDay)} با حدود **${peakRainDay.precipSum} میلی‌متر**${agreementNote(peakRainDay)}. ` +
         `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون تخمین زده شده. اگه قصد رفتن داری، چتر و لباس بارونی حتماً همراهت باشه!`;
     } else {
       summaryText = `خیالت تخت تخت! تو ${dateRangeStr} تو **${location.name}** اصلاً خبری از بارون جدی نیست و هوا صاف یا فوقش کمی ابریه. ☀️`;
@@ -633,7 +671,8 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     const pct = isExact ? Math.round((d.modelsAgree / d.modelsTotal) * 100) : null;
     const pctPhrase = pct !== null ? `احتمال بارش **${pct}٪**` : (d.precipSum > 0 ? 'بارونیه' : 'بارونی نیست');
     summaryText = `${dateRangeStr} تو **${location.name}**: ${d.desc}، دما بین **${d.minTemp}° تا ${d.maxTemp}°**، ${pctPhrase}` +
-      (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') + '.';
+      (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') +
+      (d.rainWindow ? ` — احتمالاً${timePhrase(d)} می‌باره` : '') + '.';
   } else {
     // حالت عمومی (General Intent) — چند روز
     if (rainyDays.length > 0) {
@@ -677,6 +716,11 @@ function generateAssistantResponse(parsed, weatherResult, location) {
       ? `${day.modelsAgree} از ${day.modelsTotal} مدل بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`
       : `هوای واقعیِ سالِ قبل - حجم ${day.precipSum} mm`;
 
+    // ساعتِ تقریبیِ شروعِ بارش — فقط وقتی چیزی برای گفتن هست
+    const timeLine = day.rainWindow
+      ? `<div class="day-card-time">🕐 ${day.rainWindow.startHour} تا ${day.rainWindow.endHour}</div>`
+      : '';
+
     let precipBlock;
     if (pct !== null) {
       // بازه‌ی ۱۶روزه: همیشه درصد نشون بده، حتی صفر — چون سؤالِ اصلی همینه
@@ -684,7 +728,7 @@ function generateAssistantResponse(parsed, weatherResult, location) {
         <div class="day-card-precip${pct === 0 ? ' is-zero' : ''}" title="${precipTitle}">
           <span>💧</span>
           <span>${pct}٪${day.precipSum > 0 ? ` · ${day.precipSum}mm` : ''}</span>
-        </div>`;
+        </div>${timeLine}`;
     } else if (day.precipSum > 0) {
       // بازه‌ی تاریخی: درصدِ واقعی نداریم، فقط مقدارِ واقعیِ سالِ قبل
       precipBlock = `
