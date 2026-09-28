@@ -117,7 +117,7 @@ Open-Meteo رایگان یک روز سقفِ نرخ را عوض کند.
 ## ساختار پوشه‌ها
 
 ```
-04_weather-iran/
+24_weather-iran/
 ├── HANDOFF.md              ← همین فایل، نقطه‌ی ورود
 ├── AGENTS.md                ← برای Antigravity/ابزارِ دیگر
 ├── docs/WAR_LOG.md          ← باگ‌های گران و درس‌ها
