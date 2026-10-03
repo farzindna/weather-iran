@@ -64,6 +64,31 @@ function getJalaliDateStr(dateObj) {
   };
 }
 
+// --- حسابِ روز بدونِ دردسرِ ساعت و منطقه‌ی زمانی ---
+const DAY_MS = 24 * 3600 * 1000;
+const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY_MS);
+
+function jalaliMonthLength(jy, jm) {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  // اسفند فقط در سالِ کبیسه ۳۰ روزه است: اگر «۳۰ اسفند» به فروردین برگشت، ۲۹ روزه است
+  const g = jalaliToGregorian(jy, 12, 30);
+  return gregorianToJalali(g.gy, g.gm, g.gd).jm === 12 ? 30 : 29;
+}
+
+function jalaliToDate(jy, jm, jd) {
+  const g = jalaliToGregorian(jy, jm, Math.min(jd, jalaliMonthLength(jy, jm)));
+  return new Date(g.gy, g.gm - 1, g.gd);
+}
+
+// «امروز / فردا / پس‌فردا» برای روزهای نزدیک — تا جواب صریح بگوید کدام روز را فهمیده
+function relativeDayWord(d, today) {
+  const n = daysBetween(today, d);
+  return n === 0 ? 'امروز' : n === 1 ? 'فردا' : n === 2 ? 'پس‌فردا' : null;
+}
+
 // ==========================================
 // 2. دیتابیس شهرهای ایران + قابلیت ژئوکودینگ پویا
 // ==========================================
@@ -73,12 +98,12 @@ const POPULAR_CITIES = [
   { name: 'رامسر', lat: 36.9180, lon: 50.6480, province: 'مازندران' },
   { name: 'کلاردشت', lat: 36.4914, lon: 51.1558, province: 'مازندران' },
   { name: 'رشت', lat: 37.2809, lon: 49.5924, province: 'گیلان' },
-  { name: 'انزلی', lat: 37.4747, lon: 49.4589, province: 'گیلان' },
+  { name: 'انزلی', lat: 37.4747, lon: 49.4589, province: 'گیلان', aliases: ['بندر انزلی'] },
   { name: 'لاهیجان', lat: 37.2070, lon: 50.0031, province: 'گیلان' },
   { name: 'ساری', lat: 36.5659, lon: 53.0586, province: 'مازندران' },
   { name: 'بابل', lat: 36.5419, lon: 52.6782, province: 'مازندران' },
   { name: 'آمل', lat: 36.4696, lon: 52.3507, province: 'مازندران' },
-  { name: 'تهران', lat: 35.6892, lon: 51.3890, province: 'تهران' },
+  { name: 'تهران', lat: 35.6892, lon: 51.3890, province: 'تهران', aliases: ['تهرون'] },
   { name: 'کرج', lat: 35.8327, lon: 50.9915, province: 'البرز' },
   { name: 'مشهد', lat: 36.2972, lon: 59.6067, province: 'خراسان رضوی' },
   { name: 'اصفهان', lat: 32.6546, lon: 51.6680, province: 'اصفهان' },
@@ -87,7 +112,7 @@ const POPULAR_CITIES = [
   { name: 'اهواز', lat: 31.3183, lon: 48.6706, province: 'خوزستان' },
   { name: 'کیش', lat: 26.5578, lon: 53.9799, province: 'هرمزگان' },
   { name: 'قشم', lat: 26.9581, lon: 56.2719, province: 'هرمزگان' },
-  { name: 'بندرعباس', lat: 27.1832, lon: 56.2666, province: 'هرمزگان' },
+  { name: 'بندرعباس', lat: 27.1832, lon: 56.2666, province: 'هرمزگان', aliases: ['بندر عباس'] },
   { name: 'بوشهر', lat: 28.9234, lon: 50.8203, province: 'بوشهر' },
   { name: 'یزد', lat: 31.8974, lon: 54.3569, province: 'یزد' },
   { name: 'کرمان', lat: 30.2839, lon: 57.0834, province: 'کرمان' },
@@ -120,128 +145,388 @@ const POPULAR_CITIES = [
   { name: 'سرعین', lat: 38.1517, lon: 48.0706, province: 'اردبیل' }
 ];
 
-async function resolveLocation(cityName) {
-  // ۱. بررسی کش دیتابیس داخلی
-  const clean = cityName.trim();
-  const match = POPULAR_CITIES.find(c => c.name === clean || clean.includes(c.name) || c.name.includes(clean));
-  if (match) return match;
+// اسمِ «کلمه‌ای» شهر: نیم‌فاصله ← فاصله، تا «خرم آباد» و «خرم‌آباد» یکی باشند
+const cityWordForm = s => s.replace(/‌/g, ' ').replace(/\s+/g, ' ').trim();
+const cityKey = s => cityWordForm(normalizeText(s)).replace(/ /g, '');
 
-  // ۲. در صورت نبود، ژئوکودینگ آنلاین از Open-Meteo — چند نتیجه می‌گیریم و
-  // فقط ایران را قبول می‌کنیم؛ وگرنه یه کلمه‌ی ناقص مثل «هوای» می‌تونه با
-  // یه شهر چینی (هوایبی، آنهویی) اشتباه گرفته بشه (یه‌بار واقعاً افتاد)
+// اسم‌ها و نام‌های مستعارِ لیستِ داخلی، بلندترین اول — تا «بابلسر» قبل از «بابل» دیده شود
+const CITY_NAMES = POPULAR_CITIES
+  .flatMap(c => [c.name, ...(c.aliases || [])].map(n => ({ city: c, w: cityWordForm(n), key: cityKey(n) })))
+  .sort((a, b) => b.w.length - a.w.length);
+
+function findLocalCity(name) {
+  const key = cityKey(name);
+  // اول تطابقِ دقیق — قبلاً فقط includes بود و «بابلسر» مختصاتِ «بابل» را می‌گرفت
+  const exact = CITY_NAMES.find(n => n.key === key);
+  if (exact) return exact.city;
+  // بعد کلمه‌ای که اسمِ یک شهرِ لیست را در خودش دارد («بندرانزلی» ← انزلی)
+  const inner = CITY_NAMES.find(n => n.key.length >= 3 && key.includes(n.key));
+  return inner ? inner.city : null;
+}
+
+const FEATURE_RANK = { PPLC: 50, PPLA: 40, PPLA2: 30, PPLA3: 20, PPLA4: 15, PPL: 10 };
+
+// geocodingِ آنلاینِ Open-Meteo — فقط ایران و فقط اسمِ دقیقاً یکسان. جستجویش فازی
+// است: «میرم» را «میرمنا» برمی‌گرداند و «جاده» را «جاده تخته» (هر دو روستای واقعیِ
+// ایران)؛ یک‌بار هم «هوای» به Huaibeiِ چین گره خورده بود.
+// strict یعنی کاربر نه کلمه‌ی هوا گفته نه تاریخ — آن‌وقت فقط شهرهای اصلی قبول‌اند
+async function geocodeIran(name, strict) {
+  const key = cityKey(name);
   try {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(clean)}&count=5&language=fa&format=json`;
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityWordForm(normalizeText(name)))}&count=10&language=fa&format=json`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    const top = data.results?.find(r => r.country_code === 'IR');
-    if (top) {
-      return {
-        name: top.name,
-        lat: top.latitude,
-        lon: top.longitude,
-        province: top.admin1 || 'ایران'
-      };
+    let best = null;
+    for (const r of data.results || []) {
+      if (r.country_code !== 'IR' || cityKey(r.name || '') !== key) continue;
+      const rank = FEATURE_RANK[r.feature_code] || 0;
+      const major = rank >= 30 || (r.population || 0) >= 20000;
+      if (strict && !major) continue;
+      const score = rank + Math.log10((r.population || 0) + 1) * 5;
+      if (!best || score > best.score) {
+        best = { score, loc: { name: normalizeText(r.name), lat: r.latitude, lon: r.longitude, province: r.admin1 || 'ایران' } };
+      }
     }
+    return best;
   } catch (e) {
     console.warn('Geocoding error:', e);
+    return null;
   }
-  return null;
+}
+
+// چند کاندیدا امتحان می‌شود و بهترین برنده است — نه «اولین کلمه‌ی ناشناخته» مثلِ قبل.
+// دوکلمه‌ای‌ها اول («خرم آباد»، «بندر عباس»)
+async function resolveCandidates(cands, strict) {
+  let best = null;
+  for (const cand of cands.slice(0, 5)) {
+    const local = findLocalCity(cand);
+    if (local) return { loc: local, from: cand };
+    const hit = await geocodeIran(cand, strict);
+    if (hit && (!best || hit.score > best.score)) best = { ...hit, from: cand };
+    if (best && best.score >= 40) break; // شهرِ اصلیِ دقیق پیدا شد، بیشتر نگرد
+  }
+  return best;
 }
 
 // ==========================================
-// 3. موتور استخراج زبان طبیعی (Persian NLP)
+// 3. موتور فهم زبان طبیعی (Persian NLU) — بدون LLM، فقط قاعده
 // ==========================================
-const NUMBER_WORDS = {
-  'اول': 1, 'یکم': 1, 'یک': 1, '۱': 1, '1': 1,
-  'دوم': 2, 'دو': 2, '۲': 2, '2': 2,
-  'سوم': 3, 'سه': 3, '۳': 3, '3': 3,
-  'چهارم': 4, 'چهار': 4, '۴': 4, '4': 4,
-  'پنجم': 5, 'پنج': 5, '۵': 5, '5': 5,
-  'ششم': 6, 'شش': 6, '۶': 6, '6': 6,
-  'هفتم': 7, 'هفت': 7, '۷': 7, '7': 7,
-  'هشتم': 8, 'هشت': 8, '۸': 8, '8': 8,
-  'نهم': 9, 'نه': 9, '۹': 9, '9': 9,
-  'دهم': 10, 'ده': 10, '۱۰': 10, '10': 10,
-  'یازدهم': 11, '۱۱': 11, '11': 11,
-  'دوازدهم': 12, '۱۲': 12, '12': 12,
-  'سیزدهم': 13, '۱۳': 13, '13': 13,
-  'چهاردهم': 14, '۱۴': 14, '14': 14,
-  'پانزدهم': 15, '۱۵': 15, '15': 15,
-  'شانزدهم': 16, '۱۶': 16, '16': 16,
-  'هفدهم': 17, '۱۷': 17, '17': 17,
-  'هجدهم': 18, '۱۸': 18, '18': 18,
-  'نوزدهم': 19, '۱۹': 19, '19': 19,
-  'بیستم': 20, '۲۰': 20, '20': 20,
-  'بیست و یکم': 21, '۲۱': 21, '21': 21,
-  'بیست و دوم': 22, '۲۲': 22, '22': 22,
-  'بیست و سوم': 23, '۲۳': 23, '23': 23,
-  'بیست و چهارم': 24, '۲۴': 24, '24': 24,
-  'بیست و پنجم': 25, '۲۵': 25, '25': 25,
-  'بیست و ششم': 26, '۲۶': 26, '26': 26,
-  'بیست و هفتم': 27, '۲۷': 27, '27': 27,
-  'بیست و هشتم': 28, '۲۸': 28, '28': 28,
-  'بیست و نهم': 29, '۲۹': 29, '29': 29,
-  'سی ام': 30,  'سی و یکم': 31, '۳۱': 31, '31': 31
+
+// یکدست‌سازیِ متن پیش از هر تشخیصی: ی/ک عربی (کیبوردِ ویندوز و بعضی اندرویدها)
+// ← فارسی، رقمِ فارسی/عربی ← لاتین، حذفِ اعراب
+function normalizeText(text) {
+  return String(text)
+    .replace(/[ً-ٰٟ]/g, '')
+    .replace(/[يى]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// نسخه‌ی «کلمه‌به‌کلمه» برای تشخیصِ تاریخ، قصد و شهر: «5-9» ← «5 تا 9»، علامت‌ها حذف،
+// پسوندِ چسبیده با نیم‌فاصله کنده («هفته‌ی» ← «هفته»)، بقیه‌ی نیم‌فاصله‌ها فاصله
+// («سه‌شنبه» ← «سه شنبه»، «پس‌فردا» ← «پس فردا»)
+function toWordForm(norm) {
+  return norm
+    .replace(/(\d)\s*[-–]\s*(\d)/g, '$1 تا $2')
+    .replace(/[؟?!.,،:;«»"'()\[\]\-–_/]/g, ' ')
+    .replace(/‌(?:ی|ای|ها|های|هایی)(?=\s|$)/g, '')
+    .replace(/‌/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// الگو فقط وقتی مچ می‌شود که «کلمه‌ی کامل» باشد، نه تکه‌ای از کلمه‌ی دیگر.
+// قبلاً «دی» داخلِ «دیگه» ماهِ دی حساب می‌شد و «۲ تا ۳ روز دیگه» می‌شد «۲ تا ۳ دی»
+const wordRe = (src, flags = '') => new RegExp(`(?:^|\\s)(?:${src})(?=\\s|$)`, flags);
+
+// عددِ حرفی ۱ تا ۳۱، هم شمارشی («پنج»، «پونزده») هم ترتیبی («پنجم»، «سوم»، «بیست و یکم»)
+const NUMBER_WORDS = (() => {
+  const base = {
+    'یک': 1, 'دو': 2, 'سه': 3, 'چهار': 4, 'چار': 4, 'پنج': 5, 'شش': 6, 'شیش': 6, 'هفت': 7,
+    'هشت': 8, 'نه': 9, 'ده': 10, 'یازده': 11, 'دوازده': 12, 'سیزده': 13, 'چهارده': 14,
+    'چارده': 14, 'پانزده': 15, 'پونزده': 15, 'شانزده': 16, 'شونزده': 16, 'هفده': 17,
+    'هیفده': 17, 'هجده': 18, 'هیجده': 18, 'نوزده': 19, 'بیست': 20, 'سی': 30,
+  };
+  const cardinal = { ...base };
+  for (const u of ['یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه']) cardinal[`بیست و ${u}`] = 20 + base[u];
+  cardinal['سی و یک'] = 31;
+  const out = { 'یه': 1, 'اول': 1 };
+  for (const [w, v] of Object.entries(cardinal)) {
+    out[w] = v;
+    if (w.endsWith('سه')) out[w.slice(0, -2) + 'سوم'] = v;        // سه ← سوم
+    else if (w.endsWith('ی')) { out[w + ' ام'] = v; out[w + 'ام'] = v; } // سی ام
+    else out[w + 'م'] = v;                                          // پنجم، بیست و یکم
+  }
+  return out;
+})();
+const NUM_SRC = `\\d{1,3}|${Object.keys(NUMBER_WORDS).sort((a, b) => b.length - a.length).join('|')}`;
+const parseNum = s => (/^\d+$/.test(s) ? parseInt(s, 10) : s === 'ی' ? 1 : NUMBER_WORDS[s] ?? null);
+
+const MONTH_SRC = '(فروردین|اردیبهشت|خرداد|تیر|امرداد|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)(?: ?ماه)?';
+const monthIndex = w => (PERSIAN_MONTHS.indexOf(w) + 1) || (w === 'امرداد' ? 5 : 0);
+const NEXT_SRC = '(آینده|اینده|بعد|بعدی|بعدش|دیگه|دیگر)';
+const UNIT_SRC = '(روز|روزه|روزا|روزها|روزای|روزهای|هفته|ماه)';
+const unitDays = u => (u.startsWith('روز') ? 1 : u === 'هفته' ? 7 : 30);
+const WEEKDAY_SRC = '(یک ?شنبه|یه ?شنبه|دو ?شنبه|سه ?شنبه|سشنبه|چهار ?شنبه|چار ?شنبه|پنج ?شنبه|شنبه|جمعه)';
+// getDay(): ۰ = یکشنبه … ۶ = شنبه
+const WEEKDAY_INDEX = {
+  'یکشنبه': 0, 'یهشنبه': 0, 'دوشنبه': 1, 'سهشنبه': 2, 'سشنبه': 2,
+  'چهارشنبه': 3, 'چارشنبه': 3, 'پنجشنبه': 4, 'جمعه': 5, 'شنبه': 6,
 };
 
-// کلماتی که هیچ‌وقت اسم شهر نیستند — هرچی از جمله بماند، کاندیدای شهر است.
-// ساده و بدون NLP واقعی: فقط یک لیست حذفی
+// تاریخ را از جمله درمی‌آورد. هر الگو که پیدا شد یک «اشاره» می‌شود و جایش با فاصله
+// پوشانده می‌شود تا الگوهای بعدی دوباره نخورندش («پس فردا» ≠ «فردا»، «آخر هفته» ≠
+// «هفته»). آخرِ کار دو اشاره با «تا» بازه می‌شوند و با «و» یکی.
+// start/end = بازه‌ای که اشاره به‌تنهایی می‌گوید؛ ps/pe = نقطه‌اش وقتی سرِ یک «تا» است
+function parseDateRange(wf, today) {
+  const cur = gregorianToJalali(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  const mentions = [];
+  let masked = wf;
+
+  const scan = (src, build) => {
+    const re = wordRe(src, 'g');
+    const found = [];
+    let m;
+    while ((m = re.exec(masked)) !== null) {
+      const lead = /^\s/.test(m[0]) ? 1 : 0;
+      found.push({ m, pos: m.index + lead, len: m[0].length - lead });
+    }
+    for (const f of found) {
+      const built = build(f.m, f.pos);
+      if (!built) continue;
+      mentions.push({ pos: f.pos, len: f.len, ...built });
+      masked = masked.slice(0, f.pos) + ' '.repeat(f.len) + masked.slice(f.pos + f.len);
+    }
+  };
+
+  const point = d => ({ start: d, end: d, ps: d, pe: d });
+  const span = (s, e) => ({ start: s, end: e, ps: s, pe: e });
+  // ماهِ گذشته‌ی امسال یعنی سالِ بعد («۵ فروردین» وقتی الان مهر است)
+  const yearFor = jm => (jm < cur.jm ? cur.jy + 1 : cur.jy);
+  const nextDow = (dow, strictlyAfter) => {
+    let n = (dow - today.getDay() + 7) % 7;
+    if (n === 0 && strictlyAfter) n = 7;
+    return addDays(today, n);
+  };
+  const monthEnd = (jy, jm) => jalaliToDate(jy, jm, jalaliMonthLength(jy, jm));
+  const ORD = '(?: ?ام)?';
+
+  // ۱. بازه‌ی صریحِ شمسی: «۵ تا ۹ مهر»، «پنجم تا نهم آبان»، «۲۵ مهر تا ۵ آبان»
+  scan(`(${NUM_SRC})${ORD}(?: ${MONTH_SRC})? (?:تا|الی) (${NUM_SRC})${ORD} ${MONTH_SRC}`, m => {
+    const d1 = parseNum(m[1]), d2 = parseNum(m[3]);
+    if (!d1 || !d2 || d1 > 31 || d2 > 31) return null;
+    const m2 = monthIndex(m[4]), m1 = m[2] ? monthIndex(m[2]) : m2;
+    const y1 = yearFor(m1), y2 = m2 < m1 ? y1 + 1 : y1; // «۲۵ اسفند تا ۵ فروردین»
+    const s = jalaliToDate(y1, m1, d1), e = jalaliToDate(y2, m2, d2);
+    return s <= e ? span(s, e) : span(e, s);
+  });
+
+  // ۲. یک روزِ صریح: «۱۵ مهر»، «پونزدهم مهر»، «اول آبان»
+  scan(`(${NUM_SRC})${ORD} ${MONTH_SRC}`, m => {
+    const d = parseNum(m[1]);
+    if (!d || d > 31) return null;
+    const jm = monthIndex(m[2]);
+    return point(jalaliToDate(yearFor(jm), jm, d));
+  });
+
+  // ۳. «N روز/هفته پیش» ← گذشته
+  scan(`(${NUM_SRC}|ی) ${UNIT_SRC} (?:پیش|قبل)`, m => {
+    const n = parseNum(m[1]);
+    return n ? point(addDays(today, -n * unitDays(m[2]))) : null;
+  });
+
+  // ۴. «N روز/هفته/ماه». با «دیگه/بعد» یعنی «تا آن روز» و خودِ آن روز برجسته
+  //    می‌شود («یه هفته دیگه» = امروز تا ۷ روز بعد، روزِ هفتم پررنگ)؛ با «آینده» یا
+  //    بی‌پسوند یعنی N روزِ پیشِ رو؛ «۲ تا ۳ روز دیگه» = همان دو روز
+  scan(`(?:(${NUM_SRC}) (?:تا|الی) )?(${NUM_SRC}|ی) ${UNIT_SRC}(?: ${NEXT_SRC})?`, m => {
+    const n2 = parseNum(m[2]);
+    const n1 = m[1] ? parseNum(m[1]) : null;
+    if (!n2 || (m[1] && !n1)) return null;
+    const u = unitDays(m[3]);
+    const after = /دیگ|بعد/.test(m[4] || '');
+    if (n1 && after) {
+      return span(addDays(today, Math.min(n1, n2) * u), addDays(today, Math.max(n1, n2) * u));
+    }
+    const n = n1 ? Math.max(n1, n2) : n2;
+    if (after) {
+      const target = addDays(today, n * u);
+      return { start: today, end: target, ps: target, pe: target, focus: target };
+    }
+    return span(today, addDays(today, n * u - 1));
+  });
+
+  // ۵. «چند روز» = پنج روزِ پیشِ رو، «چند هفته» = دو هفته
+  scan(`چند ${UNIT_SRC}(?: ${NEXT_SRC})?`, m => {
+    const u = unitDays(m[1]);
+    return span(today, addDays(today, u === 1 ? 4 : u * 2 - 1));
+  });
+
+  // ۶. آخر هفته = پنجشنبه و جمعه؛ اگر امروز جمعه است، همین امروز
+  scan(`(?:آخر|تعطیلات|تعطیلی) ?هفته(?:(?: ی| ای)? ${NEXT_SRC})?`, m => {
+    if (today.getDay() === 5 && !m[1]) return point(today);
+    let thu = nextDow(4, false);
+    if (m[1] && today.getDay() !== 5) thu = addDays(thu, 7);
+    return span(thu, addDays(thu, 1));
+  });
+
+  // ۷. «این هفته» = امروز تا جمعه؛ «هفته‌ی بعد/آینده/دیگه» = شنبه تا جمعه‌ی بعد
+  scan('(?:این|همین) ?هفته', () => span(today, nextDow(5, false)));
+  scan(`هفته(?: ی| ای)? ${NEXT_SRC}`, () => {
+    const sat = nextDow(6, true);
+    return span(sat, addDays(sat, 6));
+  });
+
+  // ۸. ماهِ جاری و ۳۰ روزِ پیشِ رو
+  scan('(?:این|همین) ?ماه', () => span(today, monthEnd(cur.jy, cur.jm)));
+  scan('آخر ?ماه', () => point(monthEnd(cur.jy, cur.jm)));
+  scan(`ماه(?: ی| ای)? ${NEXT_SRC}`, () => span(today, addDays(today, 29)));
+
+  // ۹. اسمِ ماه بدونِ روز: «اواخر مهر»، «اوایل آبان»، «کلِ آبان ماه». خودِ اسمِ ماه
+  //    به‌تنهایی کافی نیست — «مهر»، «تیر»، «آذر» و «بهمن» کلمه یا اسمِ آدم هم هستند
+  scan(`(?:(اوایل|اوائل|اواسط|وسط|اواخر|آخر|آخرای) )?${MONTH_SRC}`, (m, pos) => {
+    const jm = monthIndex(m[2]);
+    const before = masked.slice(0, pos).trim().split(' ').pop();
+    if (!m[1] && !/ماه$/.test(m[0]) && !['تو', 'در', 'کل', 'طول', 'برای', 'واسه'].includes(before)) return null;
+    const y = yearFor(jm), len = jalaliMonthLength(y, jm);
+    const [d1, d2] = !m[1] ? [1, len] : /اوای|اوائ/.test(m[1]) ? [1, 10] : /وسط/.test(m[1]) ? [11, 20] : [21, len];
+    return span(jalaliToDate(y, jm, d1), jalaliToDate(y, jm, d2));
+  });
+
+  // ۱۰. روزِ هفته: «سه‌شنبه»، «جمعه‌ی بعد»
+  scan(`${WEEKDAY_SRC}(?:(?: ی| ای)? ${NEXT_SRC})?`, m => {
+    const dow = WEEKDAY_INDEX[m[1].replace(/ /g, '')];
+    return dow == null ? null : point(nextDow(dow, !!m[2]));
+  });
+
+  // ۱۱. امروز/فردا/پس‌فردا و گذشته‌ی نزدیک
+  scan('پسون ?فردا|پسین ?فردا', () => point(addDays(today, 3)));
+  scan('پس ?فردا', () => point(addDays(today, 2)));
+  scan('فردا|فرداش', () => point(addDays(today, 1)));
+  scan('امروز|امشب|الان|الآن|اکنون', () => point(today));
+  scan('پریروز', () => point(addDays(today, -2)));
+  scan('دیروز|دیشب', () => point(addDays(today, -1)));
+
+  if (mentions.length === 0) return { range: null, masked };
+  mentions.sort((a, b) => a.pos - b.pos);
+  const [a, b] = mentions;
+  const between = b ? masked.slice(a.pos + a.len, b.pos).trim() : null;
+  let r = { start: a.start, end: a.end, focus: a.focus || null };
+  if (b && /^(?:تا|الی|لغایت)$/.test(between)) {
+    // «از فردا تا جمعه»، «فردا تا ۵ روز دیگه»
+    r = a.ps <= b.pe ? { start: a.ps, end: b.pe, focus: null } : { start: b.pe, end: a.ps, focus: null };
+  } else if (b && (between === 'و' || between === '')) {
+    // «امروز و فردا»
+    r = { start: a.start < b.start ? a.start : b.start, end: a.end > b.end ? a.end : b.end, focus: null };
+  } else if (/(?:^|\s)(?:تا|الی|لغایت)$/.test(masked.slice(0, a.pos).trim())) {
+    // «تا جمعه»، «تا آخر هفته»، «تا ۱۵ مهر»
+    r = { start: today, end: a.pe, focus: null };
+  }
+  return { range: r, masked };
+}
+
+// بازه‌ی خام ← بازه‌ی قابلِ نمایش: گذشته علامت می‌خورد، روزهای ردشده کنار می‌روند،
+// بیش از ۳۱ روز بریده می‌شود (هر کدام بعداً صریح به کاربر گفته می‌شود)
+function finalizeRange(r, today) {
+  if (!r) return null;
+  let { start, end } = r;
+  if (end < start) [start, end] = [end, start];
+  if (end < today) return { start, end, focus: null, past: true };
+  const out = { start, end, focus: r.focus || null };
+  if (start < today) { out.start = today; out.clampedPast = true; }
+  if (daysBetween(out.start, out.end) > 30) { out.end = addDays(out.start, 30); out.capped = true; }
+  if (out.focus && (out.focus < out.start || out.focus > out.end)) out.focus = null;
+  return out;
+}
+
+function describeRange(range) {
+  const today = startOfDay(new Date());
+  if (daysBetween(range.start, range.end) === 0) {
+    return relativeDayWord(range.start, today) || getJalaliDateStr(range.start).full;
+  }
+  return `${getJalaliDateStr(range.start).short} تا ${getJalaliDateStr(range.end).short}`;
+}
+
+// قصد و کلمه‌های هواشناسی — کلمه‌ی کامل با پسوندِ محاوره‌ای («بارونیه»، «دمای»، «سرده»).
+// قبلاً تکه‌ای مچ می‌شد: «یخ» داخلِ «تاریخ» قصد را «دما» می‌کرد و «گرم» داخلِ «گرمسار»
+const WX_SFX = '(?:ی|یه|ه|ها|ای|و|ناک|تر|ترین|تره)?';
+const RAIN_RE = wordRe(`(?:بارو?ن|باران|بارش|رگبار|چتر|خیس|نم ?نم)${WX_SFX}|نمی ?باره|می ?باره|بباره`);
+const TEMP_RE = wordRe(`(?:سرد|گرم|دما|درجه|خنک|یخ|یخبندان|سرما|گرما|حرارت)${WX_SFX}`);
+const SKY_RE = wordRe(`(?:برف|طوفان|باد|ابر|آفتاب|مه|هوا|آسمو?ن|آسمان|رطوبت|شرجی|غبار|ریزگرد|هواشناسی)${WX_SFX}|مه ?آلود|گرد ?و ?خاک|آب و هوا`);
+
+// کلماتی که هیچ‌وقت اسم شهر نیستند — هرچه از جمله بماند، کاندیدای شهر است
 const STOPWORDS = new Set([
   // هواشناسی
   'بارون', 'باران', 'بارش', 'چتر', 'خیس', 'رگبار', 'برف', 'سرد', 'گرم', 'دما', 'درجه',
   'خنک', 'یخ', 'طوفان', 'باد', 'ابر', 'ابری', 'آفتاب', 'آفتابی', 'مه', 'هوا', 'آب',
+  'آسمون', 'آسمان', 'رطوبت', 'شرجی', 'هواشناسی', 'احتمال', 'درصد', 'میلیمتر',
   // زمان و نسبت
-  'امروز', 'فردا', 'پسفردا', 'پس', 'دیروز', 'هفته', 'آینده', 'بعد', 'آخر', 'ماه', 'روز',
-  'روزه', 'دیگه', 'دیگر', 'الان', 'حالا', 'صبح', 'ظهر', 'عصر', 'شب', 'بخیر',
+  'امروز', 'فردا', 'پسفردا', 'پس', 'دیروز', 'هفته', 'آینده', 'اینده', 'بعد', 'بعدی', 'بعدش',
+  'آخر', 'اخر', 'ماه', 'روز', 'روزه', 'روزا', 'روزها', 'روزای', 'دیگه', 'دیگر', 'الان', 'حالا',
+  'صبح', 'ظهر', 'عصر', 'شب', 'امشب', 'دیشب', 'بخیر', 'ساعت', 'چند', 'پیش', 'قبل', 'همین',
+  'اوایل', 'اواسط', 'اواخر', 'آخرای', 'تعطیلات', 'تعطیلی', 'لغایت', 'کل', 'طول', 'وقت',
+  'شنبه', 'جمعه', 'یکشنبه', 'دوشنبه', 'سشنبه', 'چهارشنبه', 'پنجشنبه',
   // پرسش و فعل
-  'چطوره', 'چطوریه', 'چطوری', 'چیه', 'چیست', 'هست', 'داریم', 'دارم', 'داره', 'دارن',
-  'میشه', 'میاد', 'میاره', 'بشه', 'بگو', 'آیا', 'کی', 'چند', 'چقدر', 'میخوام', 'می‌خوام',
-  'وضعیت', 'شرایط', 'پیش‌بینی', 'پیشبینی',
+  'چطوره', 'چطوریه', 'چطوری', 'چطور', 'چجوری', 'چجوریه', 'چیه', 'چیست', 'چی', 'چه',
+  'هست', 'هستش', 'است', 'بود', 'داریم', 'دارم', 'داره', 'دارن', 'نداره', 'نداریم',
+  'میشه', 'نمیشه', 'میاد', 'نمیاد', 'میاره', 'بشه', 'بیاد', 'میزنه', 'بزنه', 'میباره', 'بباره',
+  'بگو', 'بگی', 'بده', 'ببینم', 'بدونم', 'میخواستم', 'میخوام', 'می‌خوام', 'خوبه', 'بده',
+  'آیا', 'کی', 'چقدر', 'چنده', 'وضعیت', 'وضع', 'اوضاع', 'شرایط', 'پیش‌بینی', 'پیشبینی', 'بینی',
+  'لطفا', 'لطفاً', 'سلام', 'مرسی', 'ممنون', 'خبر', 'چک', 'کن', 'بکن', 'بنداز', 'نگاه',
+  'برم', 'میرم', 'بریم', 'میریم', 'سفر', 'جاده', 'شهر', 'استان', 'منطقه', 'سمت', 'طرف',
+  'حوالی', 'اطراف', 'نزدیک', 'خیلی', 'یکم', 'کمی', 'زیاد', 'کم', 'شدید', 'تند', 'حسابی',
+  'دقیق', 'دقیقا', 'دقیقاً', 'تقریبا', 'تقریباً', 'رفیق', 'داداش', 'عزیزم', 'جان', 'جون',
   // حرف ربط و ضمیر
-  'و', 'یا', 'که', 'این', 'آن', 'با', 'از', 'به', 'تا', 'رو', 'را', 'هم', 'در', 'تو',
-  'ما', 'شما', 'اونجا', 'اینجا', 'برای', 'واسه', 'الی', 'یک', 'می',
+  'و', 'یا', 'که', 'این', 'آن', 'اون', 'با', 'از', 'به', 'تا', 'رو', 'را', 'هم', 'در', 'تو',
+  'توی', 'روی', 'ما', 'من', 'شما', 'اونجا', 'اینجا', 'همونجا', 'برای', 'واسه', 'الی', 'یک', 'یه',
+  'می', 'نمی', 'اما', 'ولی', 'خب', 'اونم', 'اینم',
 ]);
 
-// «هوای»، «دمای»، «بارونی» و مثل آن‌ها: کلمه‌ی هواشناسیِ شناخته‌شده + «ی»ِ
-// اضافه یا صفت‌ساز. یک بار «هوای» به‌جای فارغ ماندن، کاندیدای شهر شد و به
-// یه شهر چینی (هوایبی) گره خورد چون در STOPWORDS فقط ریشه‌ی «هوا» بود.
+// پسوندِ محاوره‌ای هم حساب می‌شود: «هوای»، «سرده»، «فرداش». ریشه باید دست‌کم ۳ حرف
+// باشد، وگرنه «کیش» (کی + ش) هم کلمه‌ی دستوری حساب می‌شد
 function isStopword(t) {
   if (STOPWORDS.has(t)) return true;
-  if (t.length > 3 && t.endsWith('ی') && STOPWORDS.has(t.slice(0, -1))) return true;
+  for (const sfx of ['ی', 'ه', 'و', 'ش', 'یه', 'ای', 'ها', 'های']) {
+    if (t.length - sfx.length >= 3 && t.endsWith(sfx) && STOPWORDS.has(t.slice(0, -sfx.length))) return true;
+  }
   return false;
 }
 
-function extractCityCandidate(norm) {
-  const tokens = norm
-    .replace(/[؟?!.,،]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean);
+function isCityCandidate(t) {
+  return t.length >= 2 && !/^\d+$/.test(t) && !(t in NUMBER_WORDS) && !isStopword(t) &&
+    !PERSIAN_MONTHS.includes(t) && !RAIN_RE.test(t) && !TEMP_RE.test(t) && !SKY_RE.test(t);
+}
 
-  const candidates = tokens.filter(t =>
-    t.length > 2 &&
-    !isStopword(t) &&
-    !PERSIAN_MONTHS.includes(t) &&
-    !(t in NUMBER_WORDS)
-  );
-  if (candidates.length === 0) return null;
+// هر کلمه‌ای که تاریخ، هوا، عدد یا کلمه‌ی دستوری نیست، کاندیدای اسمِ شهر است:
+// اول دوکلمه‌ای‌های پشتِ‌سرِهم («خرم آباد»)، بعد تک‌کلمه‌ها، بعد بی‌«و»ِ محاوره («کوهدشتو»)
+function extractCityCandidates(masked) {
+  const toks = masked.split(' ');
+  const ok = toks.map(isCityCandidate);
+  const out = [];
+  for (let i = 0; i + 1 < toks.length; i++) if (ok[i] && ok[i + 1]) out.push(`${toks[i]} ${toks[i + 1]}`);
+  toks.forEach((t, i) => { if (ok[i]) out.push(t); });
+  toks.forEach((t, i) => { if (ok[i] && t.length > 3 && /[وه]$/.test(t)) out.push(t.slice(0, -1)); });
+  return [...new Set(out)];
+}
 
-  // اگر یکی از کاندیدها خودش تو لیست شهرهاست، همان قطعی‌ترین انتخاب است
-  const localHit = candidates.find(cand =>
-    POPULAR_CITIES.some(c => c.name === cand || cand.includes(c.name) || c.name.includes(cand)));
-  if (localHit) {
-    const c = POPULAR_CITIES.find(c => c.name === localHit || localHit.includes(c.name) || c.name.includes(localHit));
-    return c.name;
+// شهرهای لیستِ داخلی: کلمه‌ی کامل، با «و»ِ محاوره («تهرانو»)
+function findCityInText(wf) {
+  for (const n of CITY_NAMES) {
+    const m = wordRe(`${n.w}(?:و)?`).exec(wf);
+    if (m) {
+      const lead = /^\s/.test(m[0]) ? 1 : 0;
+      return { city: n.city, pos: m.index + lead, len: m[0].length - lead };
+    }
   }
-
-  // وگرنه اولین کلمه‌ی باقی‌مانده را به‌عنوان کاندیدا به geocoding آنلاین می‌سپاریم
-  return candidates[0];
+  return null;
 }
 
 function parseQuery(text) {
-  const norm = text.replace(/[\u064B-\u065F]/g, '').trim(); // Remove Arabic diacritics
-  const now = new Date();
-  const currentJalali = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const today = startOfDay(new Date());
+  const norm = normalizeText(text);
 
   // 0. تشخیص قصد‌های عمومی مکالمه (احوال‌پرسی، تشکر، هویت، موضوعات بی‌ربط)
   const isGreeting = /^(سلام|درود|سلام علیکم|چطوری|خوبی|حالت چطوره|صبح بخیر|شب بخیر|عصر بخیر|چه خبر|چخبر|سلامت باشی|hi|hello|hey)[\s!؟?.]*$/i.test(norm);
@@ -249,7 +534,7 @@ function parseQuery(text) {
     return { type: 'greeting', rawText: norm };
   }
 
-  const isThanks = /^(مرسی|ممنون|دستت درد نکنه|دمت گرم|تشکر|خیلی ممنون|سپاس|عشقی|نوکرتم|عالی بود)[\s!؟?.]*$/i.test(norm);
+  const isThanks = /^(مرسی|ممنون|دستت درد نکنه|دمت گرم|تشکر|خیلی ممنون|سپاس|عشقی|نوکرتم|عالی بود)(\s+(رفیق|داداش|عزیزم|جان|خیلی|زیاد))*[\s!؟?.]*$/i.test(norm);
   if (isThanks) {
     return { type: 'thanks', rawText: norm };
   }
@@ -259,155 +544,33 @@ function parseQuery(text) {
     return { type: 'identity', rawText: norm };
   }
 
-  const hasWeatherKeywords = /بارون|باران|بارش|چتر|خیس|رگبار|برف|سرد|گرم|دما|درجه|خنک|یخ|طوفان|باد|ابر|ابری|آفتاب|آفتابی|مه|مه‌آلود|هوا|آب\s*و\s*هوا/i.test(norm);
+  const wf = toWordForm(norm);
+  const { range: rawRange, masked } = parseDateRange(wf, today);
+  const range = finalizeRange(rawRange, today);
+
+  let userIntent = 'general'; // 'rain', 'temp', 'general'
+  if (RAIN_RE.test(wf)) userIntent = 'rain';
+  else if (TEMP_RE.test(wf)) userIntent = 'temp';
+  const hasWeatherKeywords = userIntent !== 'general' || SKY_RE.test(wf);
   const isClearlyIrrelevant = /دلار|سکه|طلا|ارز|بیت\s*کوین|فوتبال|استقلال|پرسپولیس|رونالدو|مسی|غذا|شام|ناهار|فیلم|آهنگ|موسیقی|برنامه\s*نویسی|پزشک|دکتر|دارو|جوک|لطیفه|سیاست|اخبار\s*روز/i.test(norm);
 
-  let targetCity = null;
-  let startDate = null;
-  let endDate = null;
-  let isMonthlyRequest = false;
-  let userIntent = 'general'; // 'rain', 'temp', 'general'
+  // 1. شهر — اول لیستِ داخلی، وگرنه هر کلمه‌ای که تاریخ/هوا/دستوری نیست کاندیدا می‌شود
+  //    (geocodingِ آنلاین بعداً در handleUserSubmit، چون async است)
+  const local = findCityInText(masked);
+  const rest = local ? masked.slice(0, local.pos) + ' '.repeat(local.len) + masked.slice(local.pos + local.len) : masked;
+  const cityCandidates = local ? [] : extractCityCandidates(rest);
 
-  if (/بارون|باران|بارش|چتر|خیس|رگبار/i.test(norm)) userIntent = 'rain';
-  else if (/سرد|گرم|دما|درجه|خنک|یخ/i.test(norm)) userIntent = 'temp';
-
-  // 1. تشخیص شهر — اول از لیست پرکاربردها
-  for (const c of POPULAR_CITIES) {
-    const reg = new RegExp(`(^|[\\s،,\\?])${c.name}([\\s،,\\?]|$)`, 'i');
-    if (reg.test(norm)) {
-      targetCity = c.name;
-      break;
-    }
-  }
-
-  // اگر تو لیست نبود (مثل کوهدشت) — به‌جای نیاز به کلمه‌ی محرکِ خاص («در»/«هوای»/...)
-  // هر کلمه‌ای که هواشناسی، تاریخ، عدد یا حرف ربط نیست را کاندیدای اسم شهر می‌گیریم؛
-  // این‌جوری «کوهدشت امروز بارون میاد؟» هم بدون کلمه‌ی محرک کار می‌کند
-  if (!targetCity) {
-    const candidate = extractCityCandidate(norm);
-    if (candidate) targetCity = candidate;
-  }
-
-  // اگر سوال نه به آب‌وهوا ربط داشت، نه اسم شهری داشت و نه کلمه‌ی هوایی:
-  if (!targetCity && !hasWeatherKeywords) {
+  if (!local && !hasWeatherKeywords && (isClearlyIrrelevant || (!range && cityCandidates.length === 0))) {
     return { type: 'irrelevant', rawText: norm };
   }
-
-  if (isClearlyIrrelevant && !hasWeatherKeywords) {
-    return { type: 'irrelevant', rawText: norm };
-  }
-
-  // اگر سوال هواشناسی پرسیده ولی اسمی از هیچ شهری نبرده (مثلا: فردا بارون میاد؟)
-  if (!targetCity && hasWeatherKeywords) {
-    return { type: 'missing_city', userIntent, rawText: norm };
-  }
-
-  // 2. بررسی بازه‌های تاریخی معین شمسی (مانند: ۵ تا ۹ مهر، یا پنجم تا نهم مهر، یا ۱۰ آبان)
-  let matchedMonthIdx = -1;
-  for (let m = 0; m < PERSIAN_MONTHS.length; m++) {
-    if (new RegExp(PERSIAN_MONTHS[m]).test(norm)) {
-      matchedMonthIdx = m + 1; // 1 to 12
-      break;
-    }
-  }
-
-  if (matchedMonthIdx !== -1) {
-    // تبدیل ارقام فارسی به انگلیسی در کل متن برای استخراج آسان‌تر اعداد
-    const normalizedDigits = norm.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
-
-    // الگوی ۱: اعداد دو طرف تا/الی مثل «۵ تا ۹» یا «12 الی 16»
-    const numRange = normalizedDigits.match(/(\d{1,2})\s*(?:تا|الی|-)\s*(\d{1,2})/);
-    let d1 = null, d2 = null;
-
-    if (numRange) {
-      d1 = parseInt(numRange[1], 10);
-      d2 = parseInt(numRange[2], 10);
-    } else {
-      // الگوی ۲: کلمات متنی مثل «پنجم تا نهم»
-      const wordsKeys = Object.keys(NUMBER_WORDS).sort((a, b) => b.length - a.length).join('|');
-      const wordRangeRegex = new RegExp(`(${wordsKeys})\\s*(?:تا|الی)\\s*(${wordsKeys})`);
-      const wordRange = norm.match(wordRangeRegex);
-      if (wordRange) {
-        d1 = NUMBER_WORDS[wordRange[1]];
-        d2 = NUMBER_WORDS[wordRange[2]];
-      } else {
-        // الگوی ۳: یک روز مشخص شمسی مانند «۱۰ مهر» یا «پنجم مهر»
-        const singleNum = normalizedDigits.match(/(\d{1,2})\s*(?:ام)?\s*(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)/);
-        if (singleNum) {
-          d1 = parseInt(singleNum[1], 10);
-          d2 = d1;
-        } else {
-          for (const [w, val] of Object.entries(NUMBER_WORDS)) {
-            if (new RegExp(`(^|[\\s])${w}\\s+${PERSIAN_MONTHS[matchedMonthIdx - 1]}`).test(norm)) {
-              d1 = val;
-              d2 = val;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    if (d1 && d2 && d1 <= 31 && d2 <= 31) {
-      let jy = currentJalali.jy;
-      // اگر ماه درخواست شده قبل از ماه جاری باشد، سال شمسی بعدی مدنظر است
-      if (matchedMonthIdx < currentJalali.jm) jy += 1;
-
-      const g1 = jalaliToGregorian(jy, matchedMonthIdx, Math.min(d1, d2));
-      const g2 = jalaliToGregorian(jy, matchedMonthIdx, Math.max(d1, d2));
-      startDate = new Date(g1.gy, g1.gm - 1, g1.gd);
-      endDate = new Date(g2.gy, g2.gm - 1, g2.gd);
-    }
-  }
-
-  // 3. بررسی عبارات نسبی (امروز، فردا، آخر هفته، یک ماه آینده، ...)
-  if (!startDate) {
-    if (/یک\s*ماه|ماه\s*آینده|۳۰\s*روز|ماه\s*بعد/i.test(norm)) {
-      isMonthlyRequest = true;
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 29);
-    } else if (/دو\s*هفته|۱۴\s*روز|۲\s*هفته/i.test(norm)) {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14);
-    } else if (/۱۰\s*روز|ده\s*روز/i.test(norm)) {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 9);
-    } else if (/هفته\s*(آینده|بعد)/i.test(norm)) {
-      const daysUntilNextSat = (6 - now.getDay() + 7) % 7 || 7;
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilNextSat);
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilNextSat + 6);
-    } else if (/آخر\s*هفته|پنجشنبه|جمعه/i.test(norm)) {
-      const day = now.getDay(); // 0=Sun, 4=Thu, 5=Fri
-      const daysUntilThu = (4 - day + 7) % 7;
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilThu);
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilThu + 1);
-    } else if (/پس\s*فردا/i.test(norm)) {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
-      endDate = new Date(startDate);
-    } else if (/فردا/i.test(norm)) {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-      endDate = new Date(startDate);
-    } else if (/امروز/i.test(norm)) {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endDate = new Date(startDate);
-    } else {
-      // حالت پیش‌فرض: امروز تا ۳ روز آینده
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
-    }
-  }
-
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffDaysFromToday = Math.round((endDate - todayStart) / (24 * 3600 * 1000));
-  const isLongRange = diffDaysFromToday >= 16 || isMonthlyRequest;
 
   return {
-    city: targetCity,
-    startDate,
-    endDate,
-    isMonthlyRequest,
-    isLongRange,
+    type: 'weather',
+    city: local ? local.city : null,
+    cityCandidates,
+    range,
     userIntent,
+    hasWeatherKeywords,
     rawText: norm
   };
 }
@@ -487,190 +650,263 @@ function findRainWindow(hourly, dayIso) {
   };
 }
 
+const FORECAST_DAYS = 16;
+const MODEL_SHORT = { ecmwf_ifs025: 'ECMWF', gfs_seamless: 'GFS', icon_seamless: 'ICON' };
+
+async function fetchForecastDays(lat, lon, startIso, endIso) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
+    `&hourly=precipitation` +
+    `&models=${ENSEMBLE_MODELS.join(',')}&forecast_days=${FORECAST_DAYS}&timezone=auto`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Forecast HTTP error ${res.status}`);
+  const data = await res.json();
+
+  const daily = data.daily;
+  const hourly = data.hourly;
+  const days = [];
+
+  for (let i = 0; i < daily.time.length; i++) {
+    const timeIso = daily.time[i];
+    // مقایسه مستقیم و بدون خطای تایم‌زون
+    if (timeIso < startIso || timeIso > endIso) continue;
+    const dObj = new Date(timeIso + 'T00:00:00');
+
+    // مقدار هر مدل برای این روز — اگر مدلی دیتا نداشت (null) نادیده گرفته می‌شود.
+    // واقعیتِ داده: ICON فقط ~۷ روز جلو را دارد و ECMWF ~۱۵ روز، پس روزهای ۸ تا ۱۵
+    // دومدلی‌اند و روزِ ۱۶ فقط GFS — این تعداد باید روی کارت صادقانه بیاید
+    const perModel = ENSEMBLE_MODELS.map(m => ({
+      model: MODEL_SHORT[m],
+      maxT: daily[`temperature_2m_max_${m}`]?.[i],
+      minT: daily[`temperature_2m_min_${m}`]?.[i],
+      precip: daily[`precipitation_sum_${m}`]?.[i] ?? 0,
+      wmo: daily[`weather_code_${m}`]?.[i],
+    })).filter(m => m.maxT != null && m.minT != null);
+
+    if (perModel.length === 0) continue;
+
+    const agree = perModel.filter(m => m.precip >= 0.5).length;
+    // آیکون باید با درصدی که نشون می‌دیم یکی باشه — قبلاً همیشه از
+    // ECMWF تنها می‌اومد، پس ممکن بود بگیم «۶۷٪ بارون» ولی آیکون آفتابی
+    // بمونه (چون فقط دوتای دیگه بارون می‌گفتن، نه ECMWF). حالا: اگه
+    // اکثریتِ مدل‌ها روی بارون توافق دارن، آیکون از میانِ همون‌ها میاد
+    const majority = Math.ceil(perModel.length / 2);
+    const rainingModels = perModel.filter(m => m.precip >= 0.5);
+    const refModel = agree >= majority
+      ? rainingModels.sort((a, b) => b.precip - a.precip)[0]
+      : perModel[0];
+    const wmo = getWmoInfo(refModel.wmo);
+
+    days.push({
+      date: dObj,
+      iso: timeIso,
+      jalali: getJalaliDateStr(dObj),
+      maxTemp: Math.round(avg(perModel.map(m => m.maxT))),
+      minTemp: Math.round(avg(perModel.map(m => m.minT))),
+      precipSum: Math.round(avg(perModel.map(m => m.precip)) * 10) / 10,
+      modelsAgree: agree,
+      modelsTotal: perModel.length,
+      models: perModel.map(m => m.model),
+      windMax: null,
+      desc: wmo.desc,
+      icon: wmo.icon,
+      isEstimate: false,
+      rainWindow: hourly ? findRainWindow(hourly, timeIso) : null
+    });
+  }
+  return days;
+}
+
+// فراتر از ۱۶ روز هیچ مدلِ عددیِ قابل‌اتکایی نیست — این پیش‌بینی نیست، فقط هوای
+// واقعیِ سالِ قبل در همان تاریخ‌های تقویمی است، صادقانه با همین برچسب.
+// (تاریخ‌ها با toIsoDate محلی‌اند؛ قبلاً toISOString بود که در ایران یک روز عقب می‌افتاد)
+async function fetchLastYearDays(lat, lon, startDate, endDate) {
+  const shift = (d, by) => new Date(d.getFullYear() + by, d.getMonth(), d.getDate());
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
+    `&start_date=${toIsoDate(shift(startDate, -1))}&end_date=${toIsoDate(shift(endDate, -1))}` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=auto`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Archive HTTP error ${res.status}`);
+  const data = await res.json();
+  const daily = data.daily;
+  const days = [];
+
+  for (let i = 0; i < daily.time.length; i++) {
+    if (daily.temperature_2m_max[i] == null) continue;
+    // تاریخ واقعی هدف امسال
+    const targetDate = shift(new Date(daily.time[i] + 'T00:00:00'), 1);
+    const wmo = getWmoInfo(daily.weather_code[i] ?? 2);
+    days.push({
+      date: targetDate,
+      iso: toIsoDate(targetDate),
+      jalali: getJalaliDateStr(targetDate),
+      maxTemp: Math.round(daily.temperature_2m_max[i]),
+      minTemp: Math.round(daily.temperature_2m_min[i]),
+      precipSum: Math.round((daily.precipitation_sum[i] || 0) * 10) / 10,
+      // بدون درصدِ ساختگی — یک نمونه‌ی تاریخیِ تک‌ساله عدد احتمال معنادار تولید نمی‌کند
+      modelsAgree: null,
+      modelsTotal: null,
+      models: [],
+      windMax: null,
+      desc: wmo.desc,
+      icon: wmo.icon,
+      isEstimate: true,
+      rainWindow: null // ساعتِ دقیق برای نمونه‌ی تاریخیِ یک‌ساله معنا ندارد
+    });
+  }
+  return days;
+}
+
+// منبع از روی داده‌ی واقعیِ همین جواب، نه یک جمله‌ی ثابت — قبلاً همیشه «سه مدل»
+// نوشته می‌شد حتی برای روزی که فقط GFS داشت
+function describeSource(days) {
+  const groups = [];
+  for (const d of days) {
+    const key = d.isEstimate ? 'est' : d.models.join(' · ');
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.n++;
+    else groups.push({ key, n: 1 });
+  }
+  const one = g => (g.key === 'est' ? 'هوای واقعیِ سالِ قبل' : g.key.includes('·') ? `میانگین ${g.key}` : `فقط ${g.key}`);
+  if (groups.length === 1) {
+    const g = groups[0];
+    if (g.key === 'est') return 'هوای واقعیِ سالِ قبل در همین تاریخ‌ها (نه پیش‌بینی مدل)';
+    const k = g.key.split(' · ').length;
+    return k > 1 ? `میانگین ${k} مدل عددی مستقل (${g.key})` : `فقط مدلِ ${g.key} (بقیه این‌قدر جلو رو ندارن)`;
+  }
+  return groups.map(g => `${g.n} روز ${one(g)}`).join(' ← ');
+}
+
+// ≤ ۱۶ روز: پیش‌بینیِ چندمدلی؛ بعدش: هوای سالِ قبل. بازه‌ای که از مرزِ ۱۶ روز رد
+// می‌شود هر دو را می‌گیرد — قبلاً کلِ بازه (حتی فردا) هوای پارسال نشان داده می‌شد
 async function fetchWeatherData(lat, lon, startDate, endDate) {
-  const now = new Date();
-  const startIso = toIsoDate(startDate);
-  const endIso = toIsoDate(endDate);
-  const todayIso = toIsoDate(now);
+  const today = startOfDay(new Date());
+  const lastForecast = addDays(today, FORECAST_DAYS - 1);
+  let days = [];
+  let archiveFrom = startDate;
 
-  // محاسبه دقیق تفاوت روزها با امروز
-  const diffDaysEnd = Math.round((new Date(endIso) - new Date(todayIso)) / (24 * 3600 * 1000));
-  const diffDaysStart = Math.round((new Date(startIso) - new Date(todayIso)) / (24 * 3600 * 1000));
-
-  // اگر بازه در محدوده ۱۶ روز آینده باشد، از Forecast API با سه مدل مستقل استفاده می‌کنیم
-  if (diffDaysEnd < 16 && diffDaysStart >= 0) {
+  if (startDate <= lastForecast && endDate >= today) {
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-        `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
-        `&hourly=precipitation` +
-        `&models=${ENSEMBLE_MODELS.join(',')}&forecast_days=16&timezone=auto`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Forecast HTTP error ${res.status}`);
-      const data = await res.json();
-
-      const daily = data.daily;
-      const hourly = data.hourly;
-      const days = [];
-
-      for (let i = 0; i < daily.time.length; i++) {
-        const timeIso = daily.time[i];
-        // مقایسه مستقیم و بدون خطای تایم‌زون
-        if (timeIso >= startIso && timeIso <= endIso) {
-          const dObj = new Date(timeIso + 'T00:00:00');
-
-          // مقدار هر مدل برای این روز — اگر مدلی دیتا نداشت (null) نادیده گرفته می‌شود
-          const perModel = ENSEMBLE_MODELS.map(m => ({
-            maxT: daily[`temperature_2m_max_${m}`]?.[i],
-            minT: daily[`temperature_2m_min_${m}`]?.[i],
-            precip: daily[`precipitation_sum_${m}`]?.[i] ?? 0,
-            wmo: daily[`weather_code_${m}`]?.[i],
-          })).filter(m => m.maxT != null && m.minT != null);
-
-          if (perModel.length === 0) continue;
-
-          const agree = perModel.filter(m => m.precip >= 0.5).length;
-          // آیکون باید با درصدی که نشون می‌دیم یکی باشه — قبلاً همیشه از
-          // ECMWF تنها می‌اومد، پس ممکن بود بگیم «۶۷٪ بارون» ولی آیکون آفتابی
-          // بمونه (چون فقط دوتای دیگه بارون می‌گفتن، نه ECMWF). حالا: اگه
-          // اکثریتِ مدل‌ها روی بارون توافق دارن، آیکون از میانِ همون‌ها میاد
-          const majority = Math.ceil(perModel.length / 2);
-          const rainingModels = perModel.filter(m => m.precip >= 0.5);
-          const refModel = agree >= majority
-            ? rainingModels.sort((a, b) => b.precip - a.precip)[0]
-            : perModel[0];
-          const wmo = getWmoInfo(refModel.wmo);
-
-          days.push({
-            date: dObj,
-            iso: timeIso,
-            jalali: getJalaliDateStr(dObj),
-            maxTemp: Math.round(avg(perModel.map(m => m.maxT))),
-            minTemp: Math.round(avg(perModel.map(m => m.minT))),
-            precipSum: Math.round(avg(perModel.map(m => m.precip)) * 10) / 10,
-            modelsAgree: agree,
-            modelsTotal: perModel.length,
-            windMax: null,
-            desc: wmo.desc,
-            icon: wmo.icon,
-            isEstimate: false,
-            rainWindow: hourly ? findRainWindow(hourly, timeIso) : null
-          });
-        }
-      }
-
-      if (days.length > 0) {
-        return {
-          type: 'exact',
-          days,
-          source: `میانگین ${ENSEMBLE_MODELS.length} مدل عددی مستقل (ECMWF · GFS · ICON)`
-        };
-      }
+      const fEnd = endDate < lastForecast ? endDate : lastForecast;
+      days = await fetchForecastDays(lat, lon, toIsoDate(startDate), toIsoDate(fEnd));
+      if (days.length > 0) archiveFrom = addDays(lastForecast, 1);
     } catch (e) {
+      // همان رفتارِ قبلی: اگر پیش‌بینی نیامد، هوای سالِ قبل با برچسبِ صادقانه
       console.warn('Forecast API fetch failed, falling back:', e);
     }
   }
 
-  // فراتر از ۱۶ روز، هیچ مدل عددیِ قابل‌اتکایی وجود ندارد — این پیش‌بینی نیست،
-  // فقط هوای واقعیِ سالِ قبل در همین بازه‌ی تقویمی است، صادقانه با همین برچسب
-  try {
-    const pastYearStart = new Date(startDate);
-    pastYearStart.setFullYear(pastYearStart.getFullYear() - 1);
-    const pastYearEnd = new Date(endDate);
-    pastYearEnd.setFullYear(pastYearEnd.getFullYear() - 1);
-
-    const sIso = pastYearStart.toISOString().split('T')[0];
-    const eIso = pastYearEnd.toISOString().split('T')[0];
-
-    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${sIso}&end_date=${eIso}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=auto`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Archive HTTP error ${res.status}`);
-    const data = await res.json();
-    const daily = data.daily;
-    const days = [];
-
-    for (let i = 0; i < daily.time.length; i++) {
-      // تاریخ واقعی هدف امسال
-      const targetDate = new Date(startDate.getTime() + (i * 24 * 3600 * 1000));
-      const wmo = getWmoInfo(daily.weather_code[i] ?? 2);
-      const precip = Math.round((daily.precipitation_sum[i] || 0) * 10) / 10;
-      days.push({
-        date: targetDate,
-        iso: targetDate.toISOString().split('T')[0],
-        jalali: getJalaliDateStr(targetDate),
-        maxTemp: Math.round(daily.temperature_2m_max[i]),
-        minTemp: Math.round(daily.temperature_2m_min[i]),
-        precipSum: precip,
-        // بدون درصدِ ساختگی — یک نمونه‌ی تاریخیِ تک‌ساله عدد احتمال معنادار تولید نمی‌کند
-        modelsAgree: null,
-        modelsTotal: null,
-        windMax: null,
-        desc: wmo.desc,
-        icon: wmo.icon,
-        isEstimate: true,
-        rainWindow: null // ساعتِ دقیق برای نمونه‌ی تاریخیِ یک‌ساله معنا ندارد
-      });
+  if (endDate >= archiveFrom) {
+    try {
+      days = days.concat(await fetchLastYearDays(lat, lon, archiveFrom, endDate));
+    } catch (err) {
+      console.error('Archive fetch failed:', err);
     }
-
-    return {
-      type: 'historical',
-      days,
-      source: 'هوای واقعیِ سالِ قبل در همین تاریخ‌ها (نه پیش‌بینی مدل)'
-    };
-  } catch (err) {
-    console.error('All weather fetches failed:', err);
-    return null;
   }
+
+  if (days.length === 0) return null;
+  const nExact = days.filter(d => !d.isEstimate).length;
+  return {
+    type: nExact === days.length ? 'exact' : nExact === 0 ? 'historical' : 'mixed',
+    days,
+    source: describeSource(days)
+  };
 }
 
 // ==========================================
 // 5. تولید پاسخ روان، تحلیلی و کارت‌های چت
 // ==========================================
-function generateAssistantResponse(parsed, weatherResult, location) {
+// دکمه‌های عوضِ بازه زیرِ هر جواب — اگر بازه را بد فهمیدم، یک کلیک درستش می‌کند.
+// بدونِ اسمِ شهر هم کار می‌کنند، چون شهرِ قبلی در حافظه‌ی گفت‌وگو هست
+function rangeChips(cityName, start, end) {
+  const today = startOfDay(new Date());
+  const c = cityName ? ` ${cityName}` : '';
+  const all = [
+    { label: 'امروز', query: `امروز${c}`, s: 0, e: 0 },
+    { label: 'فردا', query: `فردا${c}`, s: 1, e: 1 },
+    { label: '۳ روز', query: `۳ روز${c}`, s: 0, e: 2 },
+    { label: 'یه هفته', query: `یه هفته${c}`, s: 0, e: 6 },
+    { label: '۱۶ روز', query: `۱۶ روز${c}`, s: 0, e: 15 },
+  ];
+  const s = start ? daysBetween(today, start) : null;
+  const e = end ? daysBetween(today, end) : null;
+  return all
+    .filter(o => !(o.s === s && o.e === e))
+    .map((o, i) => ({ label: (i === 0 ? '📅 ' : '') + o.label, query: o.query }));
+}
+
+// view = { userIntent, focus } — focus روزی است که کاربر صریح پرسیده («یه هفته دیگه»)
+// opts = { notes, chipCity } — notes توضیحِ هر حدسی است که زدیم (شهر/تاریخ از پیامِ قبل…)
+function generateAssistantResponse(view, weatherResult, location, opts = {}) {
+  const notes = opts.notes || [];
+  const today = startOfDay(new Date());
   if (!weatherResult || !weatherResult.days || weatherResult.days.length === 0) {
     return {
       text: `شرمنده‌تم! نتونستم برای این روزها تو **${location.name}** دیتای درستی پیدا کنم. می‌خوای یه شهر دیگه یا یه تاریخ نزدیک‌تر رو بسنجیم؟`,
       cardsHtml: '',
-      suggestions: ['هوای امروز تهران', 'آخر هفته چالوس', 'هوای مشهد']
+      suggestions: rangeChips(opts.chipCity)
     };
   }
 
   const days = weatherResult.days;
-  const isExact = weatherResult.type === 'exact';   // سه‌مدله و زنده، نه تاریخی
+  const isMixed = weatherResult.type === 'mixed';
+  const isHistorical = weatherResult.type === 'historical';
+  // خلاصه‌ی متنی فقط از روزهای پیش‌بینی‌شده — هوای پارسال قاطیِ عددِ پیش‌بینی نمی‌شود
+  const statDays = isMixed ? days.filter(d => !d.isEstimate) : days;
+
+  // درصد = چند مدل از چندتا موافقند. با یک مدلِ تنها «۱۰۰٪» یعنی فقط «یک مدل گفته»،
+  // پس آن‌جا درصد نمی‌دهیم
+  const hasPct = d => !d.isEstimate && d.modelsTotal >= 2;
+  const pctOf = d => Math.round((d.modelsAgree / d.modelsTotal) * 100);
+  // «بارونی» یعنی: تو بازه‌ی ۱۶روزه، اکثریتِ مدل‌ها موافقند؛ تو بازه‌ی تاریخی، فقط مقدار واقعی
+  const isRainy = d => (d.isEstimate ? d.precipSum >= 0.5 : d.modelsAgree >= Math.ceil(d.modelsTotal / 2));
 
   // تحلیل کلی وضعیت — میانگینِ روزها، نه سردترینِ یه روز کنارِ گرم‌ترینِ یه روزِ
   // دیگه (اون‌جوری قبلاً «بین ۱۷ تا ۳۷» درمی‌اومد که هیچ روزی واقعاً این‌قدر
   // نوسان نداشت، فقط دو تا روزِ مختلف قاطی شده بودن)
-  const maxTemps = days.map(d => d.maxTemp);
-  const minTemps = days.map(d => d.minTemp);
-  const highestTemp = Math.round(avg(maxTemps));
-  const lowestTemp = Math.round(avg(minTemps));
-  const totalRain = Math.round(days.reduce((acc, d) => acc + d.precipSum, 0) * 10) / 10;
-  // «بارونی» یعنی: تو بازه‌ی ۱۶روزه، اکثریتِ سه مدل موافقند؛ تو بازه‌ی تاریخی، فقط مقدار واقعی
-  const rainyDays = days.filter(d =>
-    isExact ? d.modelsAgree >= Math.ceil(d.modelsTotal / 2) : d.precipSum >= 0.5);
+  const highestTemp = Math.round(avg(statDays.map(d => d.maxTemp)));
+  const lowestTemp = Math.round(avg(statDays.map(d => d.minTemp)));
+  const totalRain = Math.round(statDays.reduce((acc, d) => acc + d.precipSum, 0) * 10) / 10;
+  const rainyDays = statDays.filter(isRainy);
 
-  let summaryText = '';
-  const dateRangeStr = days.length === 1
-    ? days[0].jalali.full
-    : `بازه‌ی ${days[0].jalali.short} تا ${days[days.length - 1].jalali.short}`;
+  const dayLabel = d => {
+    const rel = relativeDayWord(d.date, today);
+    return rel ? `${rel}، ${d.jalali.full}` : d.jalali.full;
+  };
+  const rangeOf = list => `بازه‌ی ${list[0].jalali.short} تا ${list[list.length - 1].jalali.short}`;
+  const dateRangeStr = rangeOf(statDays);
+  const fullRangeStr = days.length === 1 ? dayLabel(days[0]) : `${rangeOf(days)} (${days.length} روز)`;
 
-  // سیگنالِ اطمینان به‌شکل درصد: چند مدل از ۳ تا موافقند. فقط تو بازه‌ی
-  // سه‌مدله معنا دارد؛ تو بازه‌ی تاریخی درصدِ واقعی نداریم که بگیم
-  const agreementNote = isExact
-    ? (day => ` (${Math.round((day.modelsAgree / day.modelsTotal) * 100)}٪ احتمال)`)
-    : (() => '');
+  // سیگنالِ اطمینان به‌شکل درصد — فقط وقتی حداقل دو مدل داریم
+  const agreementNote = day => (hasPct(day) ? ` (${pctOf(day)}٪ احتمال)` : '');
 
-  // ساعتِ تقریبیِ شروع/پایانِ بارش، وقتی داریمش — فقط بازه‌ی سه‌مدله
+  // ساعتِ تقریبیِ شروع/پایانِ بارش، وقتی داریمش — فقط بازه‌ی چندمدلی
   const timePhrase = day => {
     if (!day.rainWindow) return '';
     if (day.rainWindow.allDay) return ' تقریباً تمامِ روز';
     return ` بین ساعتِ **${day.rainWindow.startHour} تا ${day.rainWindow.endHour}**`;
   };
 
+  let summaryText = '';
   // لحن کاملاً محاوره‌ای، خودمونی و رفاقتی
-  if (parsed.userIntent === 'rain') {
+  if (statDays.length === 1) {
+    // یک روزِ تنها: احتمال بارش را همیشه صریح بگو، چه صفر باشه چه صد
+    const d = statDays[0];
+    const lead = view.userIntent === 'rain'
+      ? (isRainy(d) ? 'آره رفیق، بارون داریم! 🌧️ ' : 'خیالت تخت، بارونِ جدی‌ای در کار نیست. ☀️ ')
+      : '';
+    let pctPhrase;
+    if (hasPct(d)) pctPhrase = `احتمال بارش **${pctOf(d)}٪**`;
+    else if (d.isEstimate) pctPhrase = d.precipSum > 0 ? 'پارسال همین روز بارون اومده' : 'پارسال همین روز بارون نیومده';
+    else pctPhrase = `تنها مدلی که این‌قدر جلو رو داره (${d.models[0]}) ${d.modelsAgree ? 'بارون می‌گه' : 'بارون نمی‌گه'}`;
+    summaryText = `${lead}${dayLabel(d)} تو **${location.name}**: ${d.desc}، دما بین **${d.minTemp}° تا ${d.maxTemp}°**، ${pctPhrase}` +
+      (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') +
+      (d.rainWindow ? (d.rainWindow.allDay ? ' — تقریباً تمامِ روز می‌باره' : ` — احتمالاً${timePhrase(d)} می‌باره`) : '') + '.' +
+      (hasPct(d) && pctOf(d) >= 50 ? ' یه بهونه‌ی خوب واسه یه دور زدنِ باحال — فقط اول ترافیک رو چک کن!' : '') +
+      (view.userIntent === 'temp' && d.minTemp < 10 ? ' شب و اول صبح سرده، لباس گرم یادت نره!' : '');
+  } else if (view.userIntent === 'rain') {
     if (rainyDays.length > 0) {
-      const peakRainDay = [...days].sort((a, b) => b.precipSum - a.precipSum)[0];
+      const peakRainDay = [...statDays].sort((a, b) => b.precipSum - a.precipSum)[0];
       summaryText = `آره رفیق، تو ${dateRangeStr} تو **${location.name}** بارون داریم! 🌧️ حالشو ببر.\n\n` +
         `بیشترین بارش می‌افته روز **${peakRainDay.jalali.weekday} (${peakRainDay.jalali.short})**${timePhrase(peakRainDay)} با حدود **${peakRainDay.precipSum} میلی‌متر**${agreementNote(peakRainDay)}. ` +
         `سرجمع تو این چند روز نزدیک **${totalRain} میلی‌متر** بارون تخمین زده شده. ` +
@@ -678,35 +914,43 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     } else {
       summaryText = `خیالت تخت تخت! تو ${dateRangeStr} تو **${location.name}** اصلاً خبری از بارون جدی نیست و هوا صاف یا فوقش کمی ابریه. ☀️`;
     }
-  } else if (parsed.userIntent === 'temp') {
+  } else if (view.userIntent === 'temp') {
     summaryText = `اوضاع دمای **${location.name}** تو ${dateRangeStr} اینطوریه:\n\n` +
       `گرم‌ترین ساعت‌ها تا **${highestTemp} درجه** می‌ره بالا و شب‌ها هم تا **${lowestTemp} درجه** خنک (یا سرد) می‌شه. ` +
       (lowestTemp < 10 ? 'شب‌ها و اول صبح قشنگ سرده، پس حواست باشه لباس گرم دم دستت بذاری!' : 'هوا در کل خیلی معتدل و باحاله و می‌چسبه برای گشت‌وگذار.');
-  } else if (days.length === 1) {
-    // یک روزِ تنها: احتمال بارش را همیشه صریح بگو، چه صفر باشه چه صد
-    const d = days[0];
-    const pct = isExact ? Math.round((d.modelsAgree / d.modelsTotal) * 100) : null;
-    const pctPhrase = pct !== null ? `احتمال بارش **${pct}٪**` : (d.precipSum > 0 ? 'بارونیه' : 'بارونی نیست');
-    summaryText = `${dateRangeStr} تو **${location.name}**: ${d.desc}، دما بین **${d.minTemp}° تا ${d.maxTemp}°**، ${pctPhrase}` +
-      (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') +
-      (d.rainWindow ? (d.rainWindow.allDay ? ' — تقریباً تمامِ روز می‌باره' : ` — احتمالاً${timePhrase(d)} می‌باره`) : '') + '.' +
-      (pct !== null && pct >= 50 ? ' یه بهونه‌ی خوب واسه یه دور زدنِ باحال — فقط اول ترافیک رو چک کن!' : '');
-  } else {
+  } else if (rainyDays.length > 0) {
     // حالت عمومی (General Intent) — چند روز
-    if (rainyDays.length > 0) {
-      summaryText = `تو ${dateRangeStr} هوای **${location.name}** یکم ناپایداره و بارون داریم 🌦️\n\n` +
-        `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده. ` +
-        `هوای ابری و بارونی رو دوست داری؟ فرصتِ خوبیه واسه یه گشت‌وگذارِ باحال با ماشین — فقط قبلش یه نگاه به ترافیک بنداز!`;
-    } else {
-      summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
-        `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
-    }
+    summaryText = `تو ${dateRangeStr} هوای **${location.name}** یکم ناپایداره و بارون داریم 🌦️\n\n` +
+      `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده. ` +
+      `هوای ابری و بارونی رو دوست داری؟ فرصتِ خوبیه واسه یه گشت‌وگذارِ باحال با ماشین — فقط قبلش یه نگاه به ترافیک بنداز!`;
+  } else {
+    summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
+      `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
+  }
+
+  // روزی که کاربر صریح پرسیده («یه هفته دیگه») جدا و پررنگ گفته می‌شود
+  const focusIso = view.focus ? toIsoDate(view.focus) : null;
+  const focusDay = focusIso && days.length > 1 ? days.find(d => d.iso === focusIso) : null;
+  if (focusDay) {
+    summaryText += `\n\n📌 خودِ **${focusDay.jalali.weekday} ${focusDay.jalali.short}**: ${focusDay.desc}، **${focusDay.minTemp}° تا ${focusDay.maxTemp}°**` +
+      (hasPct(focusDay) ? `، احتمال بارش **${pctOf(focusDay)}٪**` : focusDay.isEstimate ? ' (هوای پارسالِ همین روز)' : '') + '.';
   }
 
   // فراتر از ۱۶ روز: صادقانه بگو این پیش‌بینی نیست، تکرارِ هوای سالِ قبل است
-  if (!isExact && parsed.isLongRange) {
-    summaryText += `\n\n*(💡 راستی این تاریخ بیشتر از ۱۶ روز دیگه‌ست و هیچ مدل هواشناسی این‌قدر جلوتر رو قطعی پیش‌بینی نمی‌کنه. این عددها پیش‌بینی نیستن — دقیقاً همون چیزیه که پارسال تو همین روزها اتفاق افتاده، فقط برای یه حسِ کلی از فصل.)*`;
+  if (isMixed) {
+    const firstEst = days.find(d => d.isEstimate);
+    summaryText += `\n\n(💡 از ${firstEst.jalali.short} به بعد بیشتر از ۱۶ روز دیگه‌ست و هیچ مدلی این‌قدر جلو رو پیش‌بینی نمی‌کنه — کارت‌های «پارسال» دقیقاً هوای همون روزها تو سالِ قبله، نه پیش‌بینی. خلاصه‌ی بالا فقط از روزهای پیش‌بینی‌شده‌ست.)`;
+  } else if (isHistorical) {
+    summaryText += `\n\n(💡 راستی این تاریخ بیشتر از ۱۶ روز دیگه‌ست و هیچ مدل هواشناسی این‌قدر جلوتر رو قطعی پیش‌بینی نمی‌کنه. این عددها پیش‌بینی نیستن — دقیقاً همون چیزیه که پارسال تو همین روزها اتفاق افتاده، فقط برای یه حسِ کلی از فصل.)`;
   }
+
+  if (notes.length > 0) summaryText += `\n\n${notes.join('\n')}`;
+
+  const allThree = statDays.every(d => d.isEstimate || d.modelsTotal >= 3);
+  const [badgeClass, badgeText] = isHistorical ? ['badge-monthly', '📜 هوای سالِ قبل (نه پیش‌بینی)']
+    : isMixed ? ['badge-exact', '⚡ پیش‌بینی + 📜 پارسال']
+    : allThree ? ['badge-exact', '⚡ سه مدل عددی مستقل']
+    : ['badge-exact', '⚡ پیش‌بینیِ چندمدلی'];
 
   // ساخت کارت‌های تعاملی روزانه
   let cardsHtml = `
@@ -716,24 +960,22 @@ function generateAssistantResponse(parsed, weatherResult, location) {
           <span class="weather-loc-icon">📍</span>
           <div>
             <div class="weather-loc-title">${location.name} (${location.province})</div>
-            <div class="weather-loc-sub">${dateRangeStr}</div>
+            <div class="weather-loc-sub">${fullRangeStr}</div>
           </div>
         </div>
-        <span class="weather-badge ${isExact ? 'badge-exact' : 'badge-monthly'}">
-          ${isExact ? '⚡ سه مدل عددی مستقل' : '📜 هوای سالِ قبل (نه پیش‌بینی)'}
-        </span>
+        <span class="weather-badge ${badgeClass}">${badgeText}</span>
       </div>
 
       <div class="daily-cards-scroll">
   `;
 
-  days.forEach((day, idx) => {
-    const isToday = idx === 0 && Math.abs(day.date - new Date()) < 24 * 3600 * 1000;
-    // درصدِ احتمال بارش = چند مدل از ۳ تا موافقند؛ نه عددِ ساختگی، شمارشِ واقعیِ مدل‌هاست
-    const pct = isExact && day.modelsTotal ? Math.round((day.modelsAgree / day.modelsTotal) * 100) : null;
-    const precipTitle = isExact
-      ? `${day.modelsAgree} از ${day.modelsTotal} مدل بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`
-      : `هوای واقعیِ سالِ قبل - حجم ${day.precipSum} mm`;
+  days.forEach(day => {
+    const offset = daysBetween(today, day.date);
+    const isFocus = day === focusDay;
+    const pct = hasPct(day) ? pctOf(day) : null;
+    const precipTitle = day.isEstimate
+      ? `هوای واقعیِ سالِ قبل - حجم ${day.precipSum} mm`
+      : `${day.modelsAgree} از ${day.modelsTotal} مدل (${day.models.join('، ')}) بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`;
 
     // ساعتِ تقریبیِ شروعِ بارش — فقط وقتی چیزی برای گفتن هست
     const timeLine = day.rainWindow
@@ -748,6 +990,13 @@ function generateAssistantResponse(parsed, weatherResult, location) {
           <span>💧</span>
           <span>${pct}٪${day.precipSum > 0 ? ` · ${day.precipSum}mm` : ''}</span>
         </div>${timeLine}`;
+    } else if (!day.isEstimate) {
+      // تک‌مدل: درصد معنا ندارد، فقط مقدار و اسمِ همان یک مدل
+      precipBlock = `
+        <div class="day-card-precip${day.modelsAgree ? '' : ' is-zero'}" title="${precipTitle}">
+          <span>💧</span><span>${day.precipSum > 0 ? `${day.precipSum}mm` : '—'}</span>
+        </div>${timeLine}
+        <span class="day-card-tag" title="بقیه‌ی مدل‌ها این‌قدر جلو رو پیش‌بینی نمی‌کنن">فقط ${day.models[0]}</span>`;
     } else if (day.precipSum > 0) {
       // بازه‌ی تاریخی: درصدِ واقعی نداریم، فقط مقدارِ واقعیِ سالِ قبل
       precipBlock = `
@@ -757,10 +1006,15 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     } else {
       precipBlock = `<span class="day-card-desc">${day.desc.split(' ')[0]}</span>`;
     }
+    if (day.isEstimate && isMixed) {
+      precipBlock += `<span class="day-card-tag" title="${precipTitle}">پارسال</span>`;
+    }
 
+    const classes = ['day-card', offset === 0 ? 'is-today' : '', isFocus ? 'is-focus' : '', day.isEstimate && isMixed ? 'is-estimate' : '']
+      .filter(Boolean).join(' ');
     cardsHtml += `
-      <div class="day-card ${isToday ? 'is-today' : ''}">
-        <span class="day-card-name">${isToday ? 'امروز' : day.jalali.weekday}</span>
+      <div class="${classes}">
+        <span class="day-card-name">${offset === 0 ? 'امروز' : offset === 1 ? 'فردا' : day.jalali.weekday}</span>
         <span class="day-card-date">${day.jalali.short}</span>
         <span class="day-card-icon">${day.icon}</span>
         <div class="day-card-temp">
@@ -783,17 +1037,10 @@ function generateAssistantResponse(parsed, weatherResult, location) {
     </div>
   `;
 
-  // تولید پیشنهادات هوشمند مرتبط با همان شهر
-  const suggestions = [
-    `بارندگی ${location.name} در روزهای بعد`,
-    `هوای تهران چطوره؟`,
-    `یک ماه آینده ${location.name}`
-  ];
-
   return {
     text: summaryText,
     cardsHtml,
-    suggestions
+    suggestions: rangeChips(opts.chipCity, days[0].date, days[days.length - 1].date)
   };
 }
 
@@ -876,7 +1123,10 @@ function appendAssistantMessage(data) {
   if (data.suggestions && data.suggestions.length > 0) {
     html += `<div class="msg-suggestions">`;
     data.suggestions.forEach(s => {
-      html += `<button class="suggestion-pill" data-query="${escapeHtml(s)}">${escapeHtml(s)}</button>`;
+      // پیشنهاد یا متنِ ساده است یا { label, query } — مثلِ دکمه‌های بازه («یه هفته» ← «یه هفته رشت»)
+      const label = typeof s === 'string' ? s : s.label;
+      const query = typeof s === 'string' ? s : s.query;
+      html += `<button class="suggestion-pill" data-query="${escapeHtml(query)}">${escapeHtml(label)}</button>`;
     });
     html += `</div>`;
   }
@@ -925,8 +1175,8 @@ function renderWelcomeMessage() {
         </div>
         <div class="chips-title">پرسش‌های سریع و آماده (فقط روشون بزن):</div>
         <div class="chips-grid">
-          <button class="chip-btn" data-query="سه روز تهران چطوره؟">🏙️ سه روز تهران چطوره؟</button>
-          <button class="chip-btn" data-query="سه روز کوهدشت چطوره؟">🏔️ سه روز کوهدشت چطوره؟</button>
+          <button class="chip-btn" data-query="فردا تهران چطوره؟">🏙️ فردا تهران چطوره؟</button>
+          <button class="chip-btn" data-query="یه هفته دیگه کوهدشت چطوره؟">🏔️ یه هفته دیگه کوهدشت؟</button>
           <button class="chip-btn" data-query="سه روز نوشهر چطوره؟">🌊 سه روز نوشهر چطوره؟</button>
           <button class="chip-btn" data-query="پس‌فردا چالوس بارون داریم؟">🏖️ پس‌فردا چالوس بارونیه؟</button>
         </div>
@@ -943,6 +1193,12 @@ function renderWelcomeMessage() {
   });
 }
 
+// حافظه‌ی کوتاهِ گفت‌وگو: آخرین شهر، بازه و قصد. بدونش «فردا چطوره؟» ← «کدوم شهر؟»
+// ← «رشت» سه روز نشان می‌داد، چون «رشت» جدا خوانده می‌شد و «فردا» فراموش شده بود
+// (فیدبکِ فرزین، ۱۱ مهر ۱۴۰۵). با «گفتگوی تازه» پاک می‌شود.
+const convo = { loc: null, chipCity: null, range: null, intent: null, askedCity: false };
+const CITY_CHIPS = ['تهران', 'رشت', 'چالوس', 'مشهد'];
+
 // پردازش اصلی پیام کاربر
 async function handleUserSubmit(queryText) {
   const text = (queryText || chatInput.value).trim();
@@ -958,15 +1214,18 @@ async function handleUserSubmit(queryText) {
   try {
     // 1. پردازش زبان طبیعی کوئری
     const parsed = parseQuery(text);
+    const today = startOfDay(new Date());
+    // پیامِ قبلی خودمان پرسیدیم «کدوم شهر؟» — پس این پیام جوابِ همان است
+    const answeringCityQuestion = convo.askedCity;
+    convo.askedCity = false;
 
     // پاسخ به احوال‌پرسی
     if (parsed.type === 'greeting') {
       appendAssistantMessage({
         text: 'سلام رفیق! 👋 چطوری؟ همه‌چی روبه‌راهه؟\nبگو ببینم هوای کدوم شهرو می‌خوای برات بسنجم؟ (از فردا تا ماه آینده هر جا بخوای آماده‌ام!)',
         cardsHtml: '',
-        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'فردا تهران بارون میاد؟', 'آخر هفته رامسر چطوره؟']
+        suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'فردا تهران بارون میاد؟', 'یه هفته دیگه رامسر چطوره؟']
       });
-      btnSend.disabled = false;
       return;
     }
 
@@ -975,9 +1234,8 @@ async function handleUserSubmit(queryText) {
       appendAssistantMessage({
         text: 'نوکرتم رفیق! کاری نکردم. ❤️ هر وقت برنامه سفر داشتی یا خواستی بدونی فردا چی بپوشی، فقط صدام بزن!',
         cardsHtml: '',
-        suggestions: ['هوای امروز تهران', 'آخر هفته شمال بارونیه؟', 'یک ماه آینده چالوس']
+        suggestions: ['هوای امروز تهران', 'آخر هفته رامسر بارونیه؟', 'یک ماه آینده چالوس']
       });
-      btnSend.disabled = false;
       return;
     }
 
@@ -988,7 +1246,6 @@ async function handleUserSubmit(queryText) {
         cardsHtml: '',
         suggestions: ['۵ تا ۹ مهر چالوس چطوره؟', 'شیراز تو ماه آینده', 'هوای تهران']
       });
-      btnSend.disabled = false;
       return;
     }
 
@@ -999,43 +1256,91 @@ async function handleUserSubmit(queryText) {
         cardsHtml: '',
         suggestions: ['فردا تهران بارون میاد؟', '۵ تا ۹ مهر چالوس چطوره؟', 'آخر هفته اصفهان']
       });
-      btnSend.disabled = false;
       return;
     }
 
-    // سوال هواشناسی بدون اسم شهر
-    if (parsed.type === 'missing_city') {
+    // قصد: اگر این پیام چیزی درباره‌ی هوا نگفته («تهران چی؟»)، همان قصدِ قبلی می‌ماند
+    const intent = parsed.userIntent !== 'general' ? parsed.userIntent
+      : parsed.hasWeatherKeywords ? 'general' : (convo.intent || 'general');
+    convo.intent = intent;
+
+    // تاریخِ گذشته: صادقانه بگو، نه اینکه بی‌صدا هوای سالِ قبلِ آن روز را نشان بدهی
+    if (parsed.range && parsed.range.past) {
       appendAssistantMessage({
-        text: 'نگفتی هوای کدوم شهرو می‌خوای رفیق؟ اسم شهر رو هم تو پیامت بنویس (مثلاً: **فردا تهران بارون میاد؟** یا **هوای اصفهان تا آخر هفته**) تا سریع چک کنم برات.',
+        text: `**${describeRange(parsed.range)}** دیگه گذشته رفیق 🙂 من هوای روزهای پیشِ رو رو می‌گم — تا ۱۶ روز دیگه با مدل‌های هواشناسی، بعدش هم یه حسِ کلی از هوای پارسال.`,
         cardsHtml: '',
-        suggestions: ['فردا تهران بارون میاد؟', '۵ تا ۹ مهر چالوس', 'آخر هفته مشهد']
+        suggestions: rangeChips(convo.chipCity)
       });
-      btnSend.disabled = false;
       return;
     }
+    // تاریخ حتی اگر شهر نیامده باشد یادمان می‌ماند — جوابِ «کدوم شهر؟» از آن استفاده می‌کند
+    if (parsed.range) convo.range = parsed.range;
 
-    // 2. تعیین شهر برای سوالات معتبر آب‌وهوا
+    // 2. تعیین شهر: این پیام ← وگرنه شهرِ پیامِ قبلی (صریح به کاربر گفته می‌شود)
+    const notes = [];
     let loc = null;
+    let chipCity = null;
     if (parsed.city) {
-      loc = await resolveLocation(parsed.city);
+      loc = parsed.city;
+      chipCity = loc.name;
+    } else if (parsed.cityCandidates.length > 0) {
+      const strict = !parsed.hasWeatherKeywords && !parsed.range;
+      const hit = await resolveCandidates(parsed.cityCandidates, strict);
+      if (hit) {
+        loc = hit.loc;
+        chipCity = loc.name;
+      } else if (convo.loc && (parsed.range || parsed.hasWeatherKeywords)) {
+        loc = convo.loc;
+        chipCity = convo.chipCity;
+        notes.push(`📍 «${parsed.cityCandidates[0]}» رو به‌عنوانِ شهر نشناختم؛ همون **${loc.name}** قبلی رو آوردم.`);
+      }
+    } else if (convo.loc) {
+      loc = convo.loc;
+      chipCity = convo.chipCity;
+      notes.push(`📍 شهر نگفتی، همون **${loc.name}** رو گذاشتم.`);
     }
 
     if (!loc) {
-      appendAssistantMessage({
-        text: `متوجه نشدم منظورت دقیقاً کدوم شهره! اسم شهر (مثلاً چالوس، رشت، تهران...) رو هم بنویس تا سریع مختصاتشو پیدا کنم.`,
-        cardsHtml: '',
-        suggestions: ['۵ تا ۹ مهر چالوس', 'هوای فردا تهران', 'آخر هفته اصفهان']
-      });
-      btnSend.disabled = false;
+      const tried = parsed.cityCandidates[0];
+      const when = parsed.range ? describeRange(parsed.range) : null;
+      let msg;
+      if (tried) {
+        msg = `«${tried}» رو تو شهرهای ایران پیدا نکردم رفیق! 🤔 اسم شهر رو دقیق‌تر بنویس (مثلاً «کوهدشت» یا «بندر عباس»).` +
+          (when ? ` تاریخ (**${when}**) یادم می‌مونه.` : '');
+      } else if (when) {
+        msg = `فهمیدم **${when}** رو می‌خوای 👌 فقط بگو کدوم شهر؟ اسمشو بنویس یا یکی از این‌ها رو بزن.`;
+      } else {
+        msg = 'نگفتی هوای کدوم شهرو می‌خوای رفیق؟ اسم شهر رو بنویس (مثلاً **فردا تهران بارون میاد؟**) یا یکی از این‌ها رو بزن.';
+      }
+      appendAssistantMessage({ text: msg, cardsHtml: '', suggestions: CITY_CHIPS });
+      convo.askedCity = true;
       return;
     }
 
-    // 3. دریافت داده‌های آب‌وهوا از API
-    const weatherResult = await fetchWeatherData(loc.lat, loc.lon, parsed.startDate, parsed.endDate);
+    // 3. تعیین بازه: این پیام ← وگرنه بازه‌ی پیامِ قبلی ← وگرنه سه روزِ پیشِ رو
+    let range = parsed.range;
+    let defaulted = false;
+    if (!range && convo.range) {
+      range = finalizeRange(convo.range, today);
+      if (range && range.past) range = null;
+      if (range && !answeringCityQuestion) notes.push(`📅 تاریخ نگفتی، همون **${describeRange(range)}** سوالِ قبلی رو گذاشتم.`);
+    }
+    if (!range) {
+      range = { start: today, end: addDays(today, 2), focus: null };
+      defaulted = true;
+      notes.push('📅 تاریخ نگفتی، سه روزِ پیشِ رو رو آوردم — بازه‌ی دیگه خواستی، دکمه‌های پایین رو بزن.');
+    }
+    if (range.clampedPast) notes.push('📅 روزهای گذشته‌ی این بازه رو کنار گذاشتم و از امروز به بعدش رو آوردم.');
+    if (range.capped) notes.push('📅 بیشتر از یه ماه رو یه‌جا نشون نمی‌دم؛ ۳۱ روزِ اولش رو آوردم.');
 
-    // 4. تولید پاسخ هوشمند و نمایش
-    const reply = generateAssistantResponse(parsed, weatherResult, loc);
+    // 4. دریافت داده‌های آب‌وهوا از API و نمایش
+    const weatherResult = await fetchWeatherData(loc.lat, loc.lon, range.start, range.end);
+    const reply = generateAssistantResponse({ userIntent: intent, focus: range.focus }, weatherResult, loc, { notes, chipCity });
     appendAssistantMessage(reply);
+
+    convo.loc = loc;
+    convo.chipCity = chipCity;
+    convo.range = defaulted ? null : range;
 
   } catch (err) {
     console.error('Processing error:', err);
@@ -1065,6 +1370,7 @@ chatInput.addEventListener('input', () => {
 btnSend.addEventListener('click', () => handleUserSubmit());
 
 btnClear.addEventListener('click', () => {
+  Object.assign(convo, { loc: null, chipCity: null, range: null, intent: null, askedCity: false });
   renderWelcomeMessage();
   showToast('گفتگو بازنشانی شد');
 });
@@ -1082,22 +1388,16 @@ btnGps.addEventListener('click', () => {
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       btnGps.style.opacity = '1';
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
+      const loc = { name: 'موقعیت شما', province: 'مختصات ثبت‌شده', lat: pos.coords.latitude, lon: pos.coords.longitude };
 
       appendUserMessage('📍 هوای موقعیت فعلی من چطوره؟');
       appendTypingIndicator();
 
-      const now = new Date();
-      const end = new Date(now.getTime() + 4 * 24 * 3600 * 1000);
-      const weatherResult = await fetchWeatherData(lat, lon, now, end);
-
-      const reply = generateAssistantResponse(
-        { userIntent: 'general', isMonthlyRequest: false },
-        weatherResult,
-        { name: 'موقعیت شما', province: 'مختصات ثبت‌شده' }
-      );
-      appendAssistantMessage(reply);
+      const today = startOfDay(new Date());
+      const weatherResult = await fetchWeatherData(loc.lat, loc.lon, today, addDays(today, 2));
+      appendAssistantMessage(generateAssistantResponse({ userIntent: 'general', focus: null }, weatherResult, loc, { chipCity: null }));
+      // دکمه‌های بازه بدونِ اسمِ شهرند و همین موقعیت را از حافظه برمی‌دارند
+      Object.assign(convo, { loc, chipCity: null, range: null });
     },
     (err) => {
       btnGps.style.opacity = '1';

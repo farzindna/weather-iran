@@ -492,6 +492,27 @@ body::before {
   line-height: 1.3;
 }
 
+/* روزی که کاربر صریح پرسیده («یه هفته دیگه» ← خودِ روزِ هفتم) */
+.day-card.is-focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* کارتِ «پارسال» (فراتر از ۱۶ روز): پیش‌بینی نیست — باید از نگاهِ اول فرق داشته باشد */
+.day-card.is-estimate {
+  border-style: dashed;
+  background: var(--surface);
+}
+
+/* برچسبِ ریز: «پارسال» یا «فقط GFS» (روزی که فقط یک مدل داده دارد) */
+.day-card-tag {
+  font-size: 9.5px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
 /* Verification and Audit Bar */
 .weather-audit-bar {
   display: flex;
