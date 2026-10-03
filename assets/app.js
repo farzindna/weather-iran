@@ -1030,9 +1030,6 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
       </div>
       <div class="weather-audit-bar">
         <span class="audit-badge">🛡️ منبع: ${weatherResult.source}</span>
-        <a href="https://open-meteo.com/en/docs#latitude=${location.lat}&longitude=${location.lon}" target="_blank" rel="noopener" class="audit-link" title="مشاهده داکیومنت و داده‌های خام بدون واسطه">
-          🔍 راست‌آزمایی و مشاهده داده‌های خام
-        </a>
       </div>
     </div>
   `;

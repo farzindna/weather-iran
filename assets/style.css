@@ -532,20 +532,6 @@ body::before {
   color: var(--muted);
 }
 
-.audit-link {
-  font-size: 11.5px;
-  color: var(--primary);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.16s ease;
-}
-
-.audit-link:hover {
-  color: #7dd3fc;
-  text-decoration: underline;
-}
 
 /* Typing / Loading indicator */
 .typing-bubble {
