@@ -36,7 +36,7 @@ function mockFetch(log, opts = {}) {
       if (opts.forecastDown) return { ok: false, status: 503, json: async () => ({}) };
       const time = [], daily = { time };
       const M = ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'];
-      for (const m of M) for (const k of ['temperature_2m_max', 'temperature_2m_min', 'precipitation_sum', 'weather_code', 'wind_speed_10m_max']) daily[`${k}_${m}`] = [];
+      for (const m of M) for (const k of ['temperature_2m_max', 'temperature_2m_min', 'precipitation_sum', 'weather_code', 'wind_speed_10m_max', 'wind_gusts_10m_max']) daily[`${k}_${m}`] = [];
       const htime = [], hourly = { time: htime };
       for (const m of M) hourly[`precipitation_${m}`] = [];
       for (let i = 0; i < 16; i++) {
@@ -49,6 +49,7 @@ function mockFetch(log, opts = {}) {
           daily[`precipitation_sum_${m}`].push(missing ? null : (wet ? 4 : 0));
           daily[`weather_code_${m}`].push(missing ? null : (wet ? 61 : 1));
           daily[`wind_speed_10m_max_${m}`].push(missing ? null : 10);
+          daily[`wind_gusts_10m_max_${m}`].push(missing ? null : 20);
         }
         for (let h = 0; h < 24; h++) {
           htime.push(`${iso(addD(i))}T${String(h).padStart(2, '0')}:00`);
@@ -59,10 +60,11 @@ function mockFetch(log, opts = {}) {
     }
     if (u.host.startsWith('archive')) {
       const s = new Date(u.searchParams.get('start_date') + 'T00:00:00'), e = new Date(u.searchParams.get('end_date') + 'T00:00:00');
-      const daily = { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [], weather_code: [] };
+      const daily = { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [], weather_code: [], wind_speed_10m_max: [], wind_gusts_10m_max: [] };
       for (let d = new Date(s); d <= e; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
         daily.time.push(iso(d)); daily.temperature_2m_max.push(15); daily.temperature_2m_min.push(5);
         daily.precipitation_sum.push(0); daily.weather_code.push(2);
+        daily.wind_speed_10m_max.push(10); daily.wind_gusts_10m_max.push(20);
       }
       return json({ daily });
     }
@@ -76,6 +78,7 @@ function makeApp(opts) {
   const document = {
     getElementById: id => (id === 'typing-indicator' ? null : (els[id] ||= el())),
     createElement: () => el(),
+    addEventListener: () => {},
   };
   const replies = [], fetchLog = [];
   const ctx = { console: { log() {}, warn() {}, error: (...a) => console.error('APP ERROR', ...a) }, Date: FakeDate, document, setTimeout: (f) => 0, navigator: {}, URL, fetch: mockFetch(fetchLog, opts) };
@@ -236,6 +239,13 @@ function check(name, cond, detail) {
     check('اگر پیش‌بینی قطع بود ← هوای سالِ قبل با برچسبِ صادقانه', s.n === 1 && s.html.includes('هوای سالِ قبل'), s.html.slice(0, 200));
     const arch = app.fetchLog.find(u => u.includes('archive'));
     check('  تاریخِ آرشیو دقیقاً یک سال قبلِ فرداست (نه یک روز عقب)', arch && arch.includes('start_date=2025-10-04'), arch);
+  }
+
+  console.log('\n== وضعیت باد و راستی‌آزمایی ==');
+  {
+    const { s } = await single('باد در تهران', 'فردا تهران باد میاد؟', { city: 'تهران', n: 1, textHas: 'باد' });
+    check('کارت شامل اطلاعات باد است', s.html.includes('day-card-wind'), '');
+    check('پنل راستی‌آزمایی در کارت‌ها وجود دارد', s.html.includes('reality-card') && s.html.includes('راستی‌آزمایی'), '');
   }
 
   console.log('\n== بی‌ربط و احوال‌پرسی ==');

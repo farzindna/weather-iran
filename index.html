@@ -30,6 +30,10 @@
       </div>
 
       <div class="topbar-actions">
+        <button id="btn-logs" class="btn-ghost" title="مشاهده و دانلود لاگ‌های ثبت‌شده" aria-label="لاگ‌های ثبت‌شده">
+          <span class="btn-icon">📊</span>
+          <span class="btn-text">لاگ‌ها (<span id="log-counter">۰</span>)</span>
+        </button>
         <button id="btn-clear" class="btn-ghost" title="گفتگوی تازه" aria-label="شروع مجدد گفتگو">
           <span class="btn-icon">↻</span>
           <span class="btn-text">گفتگوی تازه</span>
@@ -71,6 +75,41 @@
         تا ۱۶ روز: میانگینِ مدل‌های مستقل (ECMWF · GFS · ICON؛ ICON فقط تا ۷ روز) — بعدش: هوای واقعیِ سالِ قبل، نه پیش‌بینی
       </div>
     </footer>
+  </div>
+
+  <!-- Modal for Logs & Model Comparison -->
+  <div id="log-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="modal-icon">📊</span>
+          <h2 id="modal-title">لاگ‌های میدانی و مقایسه‌ی مدل‌ها</h2>
+        </div>
+        <button id="btn-close-modal" class="btn-icon-close" title="بستن" aria-label="بستن">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="modal-stats" class="modal-stats-grid">
+          <!-- Stats injected here -->
+        </div>
+        <div class="modal-actions-bar">
+          <button id="btn-download-json" class="btn-action primary">
+            <span>📥</span> دانلود فایل لاگ‌ها (JSON)
+          </button>
+          <button id="btn-copy-json" class="btn-action secondary">
+            <span>📋</span> کپی متن JSON
+          </button>
+          <button id="btn-clear-logs" class="btn-action danger">
+            <span>🗑️</span> پاک‌سازی لاگ‌ها
+          </button>
+        </div>
+        <div class="modal-log-list-wrap">
+          <h3 class="log-list-title">گزارش‌های ثبت‌شده:</h3>
+          <div id="modal-log-list" class="modal-log-list">
+            <!-- Logs items injected here -->
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="toast" role="status"></div>

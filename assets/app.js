@@ -455,13 +455,14 @@ function describeRange(range) {
 const WX_SFX = '(?:ی|یه|ه|ها|ای|و|ناک|تر|ترین|تره)?';
 const RAIN_RE = wordRe(`(?:بارو?ن|باران|بارش|رگبار|چتر|خیس|نم ?نم)${WX_SFX}|نمی ?باره|می ?باره|بباره`);
 const TEMP_RE = wordRe(`(?:سرد|گرم|دما|درجه|خنک|یخ|یخبندان|سرما|گرما|حرارت)${WX_SFX}`);
+const WIND_RE = wordRe(`(?:باد|طوفان|وزش|تندباد|طوفانی|گردباد|نسیم)${WX_SFX}|می ?وزه|بوزه`);
 const SKY_RE = wordRe(`(?:برف|طوفان|باد|ابر|آفتاب|مه|هوا|آسمو?ن|آسمان|رطوبت|شرجی|غبار|ریزگرد|هواشناسی)${WX_SFX}|مه ?آلود|گرد ?و ?خاک|آب و هوا`);
 
 // کلماتی که هیچ‌وقت اسم شهر نیستند — هرچه از جمله بماند، کاندیدای شهر است
 const STOPWORDS = new Set([
   // هواشناسی
   'بارون', 'باران', 'بارش', 'چتر', 'خیس', 'رگبار', 'برف', 'سرد', 'گرم', 'دما', 'درجه',
-  'خنک', 'یخ', 'طوفان', 'باد', 'ابر', 'ابری', 'آفتاب', 'آفتابی', 'مه', 'هوا', 'آب',
+  'خنک', 'یخ', 'طوفان', 'باد', 'وزش', 'تندباد', 'نسیم', 'ابر', 'ابری', 'آفتاب', 'آفتابی', 'مه', 'هوا', 'آب',
   'آسمون', 'آسمان', 'رطوبت', 'شرجی', 'هواشناسی', 'احتمال', 'درصد', 'میلیمتر',
   // زمان و نسبت
   'امروز', 'فردا', 'پسفردا', 'پس', 'دیروز', 'هفته', 'آینده', 'اینده', 'بعد', 'بعدی', 'بعدش',
@@ -497,7 +498,7 @@ function isStopword(t) {
 
 function isCityCandidate(t) {
   return t.length >= 2 && !/^\d+$/.test(t) && !(t in NUMBER_WORDS) && !isStopword(t) &&
-    !PERSIAN_MONTHS.includes(t) && !RAIN_RE.test(t) && !TEMP_RE.test(t) && !SKY_RE.test(t);
+    !PERSIAN_MONTHS.includes(t) && !RAIN_RE.test(t) && !TEMP_RE.test(t) && !WIND_RE.test(t) && !SKY_RE.test(t);
 }
 
 // هر کلمه‌ای که تاریخ، هوا، عدد یا کلمه‌ی دستوری نیست، کاندیدای اسمِ شهر است:
@@ -548,9 +549,10 @@ function parseQuery(text) {
   const { range: rawRange, masked } = parseDateRange(wf, today);
   const range = finalizeRange(rawRange, today);
 
-  let userIntent = 'general'; // 'rain', 'temp', 'general'
+  let userIntent = 'general'; // 'rain', 'temp', 'wind', 'general'
   if (RAIN_RE.test(wf)) userIntent = 'rain';
   else if (TEMP_RE.test(wf)) userIntent = 'temp';
+  else if (WIND_RE.test(wf)) userIntent = 'wind';
   const hasWeatherKeywords = userIntent !== 'general' || SKY_RE.test(wf);
   const isClearlyIrrelevant = /دلار|سکه|طلا|ارز|بیت\s*کوین|فوتبال|استقلال|پرسپولیس|رونالدو|مسی|غذا|شام|ناهار|فیلم|آهنگ|موسیقی|برنامه\s*نویسی|پزشک|دکتر|دارو|جوک|لطیفه|سیاست|اخبار\s*روز/i.test(norm);
 
@@ -655,7 +657,7 @@ const MODEL_SHORT = { ecmwf_ifs025: 'ECMWF', gfs_seamless: 'GFS', icon_seamless:
 
 async function fetchForecastDays(lat, lon, startIso, endIso) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max` +
     `&hourly=precipitation` +
     `&models=${ENSEMBLE_MODELS.join(',')}&forecast_days=${FORECAST_DAYS}&timezone=auto`;
   const res = await fetch(url);
@@ -681,9 +683,16 @@ async function fetchForecastDays(lat, lon, startIso, endIso) {
       minT: daily[`temperature_2m_min_${m}`]?.[i],
       precip: daily[`precipitation_sum_${m}`]?.[i] ?? 0,
       wmo: daily[`weather_code_${m}`]?.[i],
+      windSpeed: daily[`wind_speed_10m_max_${m}`]?.[i] != null ? Math.round(daily[`wind_speed_10m_max_${m}`][i]) : null,
+      windGust: daily[`wind_gusts_10m_max_${m}`]?.[i] != null ? Math.round(daily[`wind_gusts_10m_max_${m}`][i]) : null,
     })).filter(m => m.maxT != null && m.minT != null);
 
     if (perModel.length === 0) continue;
+
+    const windSpeeds = perModel.map(m => m.windSpeed).filter(v => v != null);
+    const windGusts = perModel.map(m => m.windGust).filter(v => v != null);
+    const windMax = windSpeeds.length > 0 ? Math.round(avg(windSpeeds)) : null;
+    const gustMax = windGusts.length > 0 ? Math.round(avg(windGusts)) : null;
 
     const agree = perModel.filter(m => m.precip >= 0.5).length;
     // آیکون باید با درصدی که نشون می‌دیم یکی باشه — قبلاً همیشه از
@@ -707,7 +716,9 @@ async function fetchForecastDays(lat, lon, startIso, endIso) {
       modelsAgree: agree,
       modelsTotal: perModel.length,
       models: perModel.map(m => m.model),
-      windMax: null,
+      windMax,
+      gustMax,
+      perModel,
       desc: wmo.desc,
       icon: wmo.icon,
       isEstimate: false,
@@ -724,7 +735,7 @@ async function fetchLastYearDays(lat, lon, startDate, endDate) {
   const shift = (d, by) => new Date(d.getFullYear() + by, d.getMonth(), d.getDate());
   const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
     `&start_date=${toIsoDate(shift(startDate, -1))}&end_date=${toIsoDate(shift(endDate, -1))}` +
-    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=auto`;
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,wind_gusts_10m_max&timezone=auto`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Archive HTTP error ${res.status}`);
   const data = await res.json();
@@ -747,7 +758,9 @@ async function fetchLastYearDays(lat, lon, startDate, endDate) {
       modelsAgree: null,
       modelsTotal: null,
       models: [],
-      windMax: null,
+      windMax: daily.wind_speed_10m_max?.[i] != null ? Math.round(daily.wind_speed_10m_max[i]) : null,
+      gustMax: daily.wind_gusts_10m_max?.[i] != null ? Math.round(daily.wind_gusts_10m_max[i]) : null,
+      perModel: [],
       desc: wmo.desc,
       icon: wmo.icon,
       isEstimate: true,
@@ -835,6 +848,157 @@ function rangeChips(cityName, start, end) {
     .map((o, i) => ({ label: (i === 0 ? '📅 ' : '') + o.label, query: o.query }));
 }
 
+function getRealityLogs() {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    return JSON.parse(localStorage.getItem('weather_reality_logs') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveRealityLog(entry) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const logs = getRealityLogs();
+    const idx = logs.findIndex(l => l.dateIso === entry.dateIso && l.city === entry.city);
+    if (idx >= 0) {
+      logs[idx] = { ...logs[idx], ...entry };
+    } else {
+      logs.unshift(entry);
+    }
+    localStorage.setItem('weather_reality_logs', JSON.stringify(logs));
+  } catch (e) {
+    console.error('Error saving reality log:', e);
+  }
+}
+
+function describeWind(day) {
+  if (day.windMax == null) return 'داده‌ی باد در دسترس نیست';
+  const gust = day.gustMax;
+  if (gust && gust >= 55) {
+    return `وزش باد بسیار شدید و تندباد لحظه‌ای تا **${gust} کیلومتر بر ساعت** 🌪️`;
+  }
+  if (gust && gust >= 38) {
+    return `وزش باد قابل‌توجه (سرعت تا **${day.windMax}** و تندباد لحظه‌ای تا **${gust} ک/س**) 💨`;
+  }
+  if (day.windMax >= 25) {
+    return `وزش باد ملایم تا متوسط (تا **${day.windMax} ک/س**) 🍃`;
+  }
+  return `باد آرام (تا **${day.windMax} ک/س**)`;
+}
+
+const isWindy = d => (d.gustMax != null && d.gustMax >= 38) || (d.windMax != null && d.windMax >= 25);
+
+function getRainDissent(d) {
+  if (d.isEstimate || !d.perModel || d.modelsTotal < 2) return null;
+  const raining = d.perModel.filter(m => m.precip >= 0.5);
+  const majority = Math.ceil(d.modelsTotal / 2);
+  if (raining.length > 0 && raining.length < majority) {
+    return {
+      rainingModels: raining,
+      dryModels: d.perModel.filter(m => m.precip < 0.5),
+    };
+  }
+  return null;
+}
+
+function renderRealityCard(day, location) {
+  if (!day || !day.perModel || day.perModel.length === 0) return '';
+  const logs = getRealityLogs();
+  const saved = logs.find(l => l.dateIso === day.iso && l.city === location.name);
+  const savedWinner = saved?.userVerdict?.accurateModels || [];
+  const savedRain = saved?.userVerdict?.realRain || '';
+  const savedWind = saved?.userVerdict?.realWind || '';
+  const savedNote = saved?.userVerdict?.notes || '';
+
+  const modelBoxes = day.perModel.map(m => {
+    const w = getWmoInfo(m.wmo);
+    const rainStr = m.precip > 0 ? `${m.precip} mm` : 'بدون بارش';
+    const windStr = m.windSpeed != null ? `${m.windSpeed} ک/س` : '—';
+    const gustStr = m.windGust != null ? ` (تندباد ${m.windGust})` : '';
+    return `
+      <div class="model-box">
+        <div class="model-box-header">
+          <span class="model-box-name">${m.model}</span>
+          <span class="model-box-cond">${w.icon} ${w.desc.split(' ')[0]}</span>
+        </div>
+        <div class="model-box-metrics">
+          <div class="model-metric-item"><span>دما:</span><span class="model-metric-val">${m.minT}° تا ${m.maxT}°</span></div>
+          <div class="model-metric-item"><span>بارش:</span><span class="model-metric-val">${rainStr}</span></div>
+          <div class="model-metric-item"><span>باد:</span><span class="model-metric-val">${windStr}${gustStr}</span></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const modelChips = day.perModel.map(m => {
+    const active = savedWinner.includes(m.model) ? ' active' : '';
+    return `<button type="button" class="chip-choice${active}" data-model="${m.model}">✓ ${m.model}</button>`;
+  }).join('');
+  const noneActive = savedWinner.includes('none') ? ' active' : '';
+
+  const rainTags = [
+    { val: 'dry', label: '☀️ نبارید' },
+    { val: 'light', label: '🌦️ رگبار / نم‌نم' },
+    { val: 'heavy', label: '🌧️ باران مداوم' }
+  ].map(t => `<button type="button" class="tag-btn${savedRain === t.val ? ' active' : ''}" data-type="rain" data-val="${t.val}">${t.label}</button>`).join('');
+
+  const windTags = [
+    { val: 'calm', label: '🍃 باد آرام' },
+    { val: 'moderate', label: '💨 باد متوسط' },
+    { val: 'storm', label: '🌪️ تندباد شدید' }
+  ].map(t => `<button type="button" class="tag-btn${savedWind === t.val ? ' active' : ''}" data-type="wind" data-val="${t.val}">${t.label}</button>`).join('');
+
+  return `
+    <div class="reality-card" data-date="${day.iso}" data-city="${escapeHtml(location.name)}">
+      <div class="reality-header">
+        <div class="reality-title-wrap">
+          <div class="reality-badge">🎯 راستی‌آزمایی و مقایسه‌ی مدل‌ها ${saved ? '<span>(✅ ثبت‌شده)</span>' : ''}</div>
+          <div class="reality-subtitle">${day.jalali.full} — ${escapeHtml(location.name)} (پیش‌بینیِ هر مدل چقدر درست بود؟)</div>
+        </div>
+        <button type="button" class="btn-reality-toggle" title="جمع یا باز کردن">▼</button>
+      </div>
+      <div class="reality-body">
+        <div class="models-compare-grid">
+          ${modelBoxes}
+        </div>
+        <div class="reality-feedback-form">
+          <div class="feedback-group">
+            <span class="feedback-label">کی راست گفت؟ (مدل‌های دقیق‌تر رو انتخاب کن):</span>
+            <div class="model-check-chips">
+              ${modelChips}
+              <button type="button" class="chip-choice${noneActive}" data-model="none">❌ هیچ‌کدام</button>
+            </div>
+          </div>
+          <div class="feedback-row">
+            <div class="feedback-group">
+              <span class="feedback-label">واقعیت بارش:</span>
+              <div class="tag-choices">
+                ${rainTags}
+              </div>
+            </div>
+            <div class="feedback-group">
+              <span class="feedback-label">واقعیت باد:</span>
+              <div class="tag-choices">
+                ${windTags}
+              </div>
+            </div>
+          </div>
+          <div class="feedback-group">
+            <span class="feedback-label">یادداشت و گزارش میدانی شما (اختیاری):</span>
+            <textarea class="reality-note-input" placeholder="مثلاً: مدل ICON بارون رو دقیق گرفت، از ساعت ۴ عصر هم تندباد شروع شد...">${escapeHtml(savedNote)}</textarea>
+          </div>
+          <div class="reality-actions">
+            <button type="button" class="btn-save-reality" data-date="${day.iso}" data-city="${escapeHtml(location.name)}">💾 ${saved ? 'بروزرسانی گزارش این روز' : 'ثبت گزارش این روز'}</button>
+            <span class="save-status-msg">${saved ? 'قبلاً در حافظه ذخیره شده' : ''}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // view = { userIntent, focus } — focus روزی است که کاربر صریح پرسیده («یه هفته دیگه»)
 // opts = { notes, chipCity } — notes توضیحِ هر حدسی است که زدیم (شهر/تاریخ از پیامِ قبل…)
 function generateAssistantResponse(view, weatherResult, location, opts = {}) {
@@ -892,18 +1056,59 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
   if (statDays.length === 1) {
     // یک روزِ تنها: احتمال بارش را همیشه صریح بگو، چه صفر باشه چه صد
     const d = statDays[0];
-    const lead = view.userIntent === 'rain'
-      ? (isRainy(d) ? 'آره رفیق، بارون داریم! 🌧️ ' : 'خیالت تخت، بارونِ جدی‌ای در کار نیست. ☀️ ')
-      : '';
+    const rainDissent = getRainDissent(d);
+    const windInfo = describeWind(d);
+    const windy = isWindy(d);
+
+    let lead = '';
+    if (view.userIntent === 'rain') {
+      if (isRainy(d)) {
+        lead = 'آره رفیق، بارون داریم! 🌧️ ';
+      } else if (rainDissent) {
+        lead = `احتمال کلی بارش کمه (${pctOf(d)}٪)، ولی مدل **${rainDissent.rainingModels.map(m => m.model).join(' و ')}** بارش پیش‌بینی کرده 🌦️ `;
+      } else {
+        lead = 'خیالت تخت، بارونِ جدی‌ای در کار نیست. ☀️ ';
+      }
+    } else if (view.userIntent === 'wind') {
+      lead = windy ? 'آره رفیق، وزش باد قابل‌توجهی داریم! 💨 ' : 'خیالت تخت، باد شدیدی در کار نیست 🍃 ';
+    }
+
     let pctPhrase;
     if (hasPct(d)) pctPhrase = `احتمال بارش **${pctOf(d)}٪**`;
     else if (d.isEstimate) pctPhrase = d.precipSum > 0 ? 'پارسال همین روز بارون اومده' : 'پارسال همین روز بارون نیومده';
     else pctPhrase = `تنها مدلی که این‌قدر جلو رو داره (${d.models[0]}) ${d.modelsAgree ? 'بارون می‌گه' : 'بارون نمی‌گه'}`;
+
+    let dissentNote = '';
+    if (rainDissent && view.userIntent !== 'rain') {
+      dissentNote = ` (⚠️ مدل **${rainDissent.rainingModels.map(m => m.model).join('، ')}** برخلاف بقیه بارش احتمالی دیده)`;
+    }
+
+    let windNote = '';
+    if (view.userIntent === 'wind') {
+      windNote = `، ${windInfo}`;
+    } else if (windy) {
+      windNote = ` — ضمناً **${windInfo}**`;
+    }
+
     summaryText = `${lead}${dayLabel(d)} تو **${location.name}**: ${d.desc}، دما بین **${d.minTemp}° تا ${d.maxTemp}°**، ${pctPhrase}` +
       (d.precipSum > 0 ? ` (حدود **${d.precipSum} میلی‌متر**)` : '') +
-      (d.rainWindow ? (d.rainWindow.allDay ? ' — تقریباً تمامِ روز می‌باره' : ` — احتمالاً${timePhrase(d)} می‌باره`) : '') + '.' +
+      dissentNote +
+      (d.rainWindow ? (d.rainWindow.allDay ? ' — تقریباً تمامِ روز می‌باره' : ` — احتمالاً${timePhrase(d)} می‌باره`) : '') +
+      windNote + '.' +
       (hasPct(d) && pctOf(d) >= 50 ? ' یه بهونه‌ی خوب واسه یه دور زدنِ باحال — فقط اول ترافیک رو چک کن!' : '') +
       (view.userIntent === 'temp' && d.minTemp < 10 ? ' شب و اول صبح سرده، لباس گرم یادت نره!' : '');
+  } else if (view.userIntent === 'wind') {
+    const windyDays = statDays.filter(isWindy);
+    if (windyDays.length > 0) {
+      const peakWindDay = [...statDays].sort((a, b) => ((b.gustMax || b.windMax || 0) - (a.gustMax || a.windMax || 0)))[0];
+      summaryText = `تو ${dateRangeStr} تو **${location.name}** وزش باد داریم 💨\n\n` +
+        `بیشترین شدت باد روز **${peakWindDay.jalali.weekday} (${peakWindDay.jalali.short})** با سرعت تا **${peakWindDay.windMax} ک/س**` +
+        (peakWindDay.gustMax ? ` (تندباد لحظه‌ای تا **${peakWindDay.gustMax} ک/س**)` : '') + ` پیش‌بینی شده. ` +
+        `دما هم بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه.`;
+    } else {
+      summaryText = `خیالت تخت! تو ${dateRangeStr} تو **${location.name}** باد شدیدی در پیش نیست و هوا در کل آرومه 🍃\n\n` +
+        `سرعت باد معمولاً زیر ۲۰ کیلومتر بر ساعته و دما بین **${lowestTemp}° تا ${highestTemp}°** خواهد بود.`;
+    }
   } else if (view.userIntent === 'rain') {
     if (rainyDays.length > 0) {
       const peakRainDay = [...statDays].sort((a, b) => b.precipSum - a.precipSum)[0];
@@ -924,8 +1129,16 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
       `دما بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه. تو ${rainyDays.length} روز از این دوره احتمال بارندگی هست و کلاً حدود **${totalRain} میلی‌متر** تخمین زده شده. ` +
       `هوای ابری و بارونی رو دوست داری؟ فرصتِ خوبیه واسه یه گشت‌وگذارِ باحال با ماشین — فقط قبلش یه نگاه به ترافیک بنداز!`;
   } else {
-    summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
-      `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
+    const windyDays = statDays.filter(isWindy);
+    if (windyDays.length > 0) {
+      const peakWindDay = [...statDays].sort((a, b) => ((b.gustMax || b.windMax || 0) - (a.gustMax || a.windMax || 0)))[0];
+      summaryText = `تو ${dateRangeStr} هوای **${location.name}** بدون بارشِ جدیه، ولی وزش باد داریم 💨\n\n` +
+        `بیشترین شدت باد روز **${peakWindDay.jalali.weekday} (${peakWindDay.jalali.short})** با سرعت تا **${peakWindDay.windMax}** و تندباد تا **${peakWindDay.gustMax || peakWindDay.windMax} ک/س** تخمین زده شده. ` +
+        `دما هم بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه.`;
+    } else {
+      summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
+        `آسمون غالباً صاف تا نیمه‌ابریه، دما هم بین **${lowestTemp}° تا ${highestTemp}°** می‌چرخه و شرایط برای سفر و کار کاملاً ردیفه!`;
+    }
   }
 
   // روزی که کاربر صریح پرسیده («یه هفته دیگه») جدا و پررنگ گفته می‌شود
@@ -1010,6 +1223,17 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
       precipBlock += `<span class="day-card-tag" title="${precipTitle}">پارسال</span>`;
     }
 
+    const windTitle = day.windMax != null
+      ? `حداکثر سرعت باد: ${day.windMax} کیلومتر بر ساعت${day.gustMax ? ` · تندباد لحظه‌ای تا ${day.gustMax} ک/س` : ''}`
+      : '';
+    const windClass = (day.gustMax >= 50 || day.windMax >= 35) ? ' is-high-wind' : (day.gustMax >= 38 || day.windMax >= 25 ? ' is-windy' : '');
+    const windBlock = day.windMax != null
+      ? `<div class="day-card-wind${windClass}" title="${windTitle}">
+          <span>💨</span>
+          <span>${day.windMax}${day.gustMax && day.gustMax >= 35 ? ` (${day.gustMax})` : ''} <small>ک/س</small></span>
+        </div>`
+      : '';
+
     const classes = ['day-card', offset === 0 ? 'is-today' : '', isFocus ? 'is-focus' : '', day.isEstimate && isMixed ? 'is-estimate' : '']
       .filter(Boolean).join(' ');
     cardsHtml += `
@@ -1022,12 +1246,19 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
           <span class="temp-min">${day.minTemp}°</span>
         </div>
         ${precipBlock}
+        ${windBlock}
       </div>
     `;
   });
 
+  const realityDay = statDays.find(d => daysBetween(today, d.date) === 0) || (focusDay || statDays[0]);
+  const realityHtml = (!isHistorical && realityDay && realityDay.perModel && realityDay.perModel.length > 0)
+    ? renderRealityCard(realityDay, location)
+    : '';
+
   cardsHtml += `
       </div>
+      ${realityHtml}
       <div class="weather-audit-bar">
         <span class="audit-badge">🛡️ منبع: ${weatherResult.source}</span>
       </div>
@@ -1037,6 +1268,7 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
   return {
     text: summaryText,
     cardsHtml,
+    rawDays: days,
     suggestions: rangeChips(opts.chipCity, days[0].date, days[days.length - 1].date)
   };
 }
@@ -1137,6 +1369,77 @@ function appendAssistantMessage(data) {
     btn.addEventListener('click', () => {
       const q = btn.getAttribute('data-query');
       if (q) handleUserSubmit(q);
+    });
+  });
+
+  // وصل کردن رویدادهای کارت راستی‌آزمایی
+  row.querySelectorAll('.reality-card').forEach(card => {
+    const header = card.querySelector('.reality-header');
+    header?.addEventListener('click', () => {
+      card.classList.toggle('is-collapsed');
+    });
+
+    const chips = card.querySelectorAll('.chip-choice');
+    chips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        const isNone = chip.dataset.model === 'none';
+        if (isNone) {
+          chips.forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+        } else {
+          card.querySelector('.chip-choice[data-model="none"]')?.classList.remove('active');
+          chip.classList.toggle('active');
+        }
+      });
+    });
+
+    ['rain', 'wind'].forEach(type => {
+      const tags = card.querySelectorAll(`.tag-btn[data-type="${type}"]`);
+      tags.forEach(t => {
+        t.addEventListener('click', () => {
+          const wasActive = t.classList.contains('active');
+          tags.forEach(other => other.classList.remove('active'));
+          if (!wasActive) t.classList.add('active');
+        });
+      });
+    });
+
+    const saveBtn = card.querySelector('.btn-save-reality');
+    const statusMsg = card.querySelector('.save-status-msg');
+    saveBtn?.addEventListener('click', () => {
+      const dateIso = saveBtn.dataset.date;
+      const city = saveBtn.dataset.city;
+      const activeModels = [...card.querySelectorAll('.chip-choice.active')].map(c => c.dataset.model);
+      const activeRain = card.querySelector('.tag-btn[data-type="rain"].active')?.dataset.val || '';
+      const activeWind = card.querySelector('.tag-btn[data-type="wind"].active')?.dataset.val || '';
+      const notes = card.querySelector('.reality-note-input')?.value.trim() || '';
+
+      const targetDay = data.rawDays?.find(d => d.iso === dateIso);
+      const logEntry = {
+        id: `${dateIso}_${city}`,
+        dateIso,
+        city,
+        timestamp: Date.now(),
+        ensemble: targetDay ? {
+          maxTemp: targetDay.maxTemp,
+          minTemp: targetDay.minTemp,
+          precipSum: targetDay.precipSum,
+          desc: targetDay.desc,
+          windMax: targetDay.windMax,
+          gustMax: targetDay.gustMax
+        } : null,
+        modelsForecast: targetDay?.perModel || [],
+        userVerdict: {
+          accurateModels: activeModels,
+          realRain: activeRain,
+          realWind: activeWind,
+          notes
+        }
+      };
+      saveRealityLog(logEntry);
+      updateLogCounter();
+      if (statusMsg) statusMsg.textContent = '✅ با موفقیت ذخیره شد!';
+      showToast('گزارش وضعیت واقعی در حافظه مرورگر ثبت شد');
     });
   });
 
@@ -1404,5 +1707,133 @@ btnGps.addEventListener('click', () => {
   );
 });
 
+// مدیریت دیالوگ لاگ‌ها و مقایسه مدل‌ها
+const btnLogs = document.getElementById('btn-logs');
+const logModal = document.getElementById('log-modal');
+const btnCloseModal = document.getElementById('btn-close-modal');
+const btnDownloadJson = document.getElementById('btn-download-json');
+const btnCopyJson = document.getElementById('btn-copy-json');
+const btnClearLogs = document.getElementById('btn-clear-logs');
+const logCounter = document.getElementById('log-counter');
+const modalStats = document.getElementById('modal-stats');
+const modalLogList = document.getElementById('modal-log-list');
+
+function updateLogCounter() {
+  if (!logCounter) return;
+  const count = getRealityLogs().length;
+  logCounter.textContent = String(count);
+}
+
+function openLogModal() {
+  if (!logModal) return;
+  renderModalContent();
+  logModal.classList.remove('hidden');
+}
+
+function closeLogModal() {
+  if (!logModal) return;
+  logModal.classList.add('hidden');
+}
+
+function renderModalContent() {
+  const logs = getRealityLogs();
+  if (modalStats) {
+    const total = logs.length;
+    const wins = { ECMWF: 0, GFS: 0, ICON: 0, none: 0 };
+    logs.forEach(l => {
+      (l.userVerdict?.accurateModels || []).forEach(m => {
+        if (m in wins) wins[m]++;
+      });
+    });
+    modalStats.innerHTML = `
+      <div class="stat-box"><div class="stat-val">${total}</div><div class="stat-label">کل گزارش‌ها</div></div>
+      <div class="stat-box"><div class="stat-val">${wins.ECMWF}</div><div class="stat-label">بردهای ECMWF</div></div>
+      <div class="stat-box"><div class="stat-val">${wins.GFS}</div><div class="stat-label">بردهای GFS</div></div>
+      <div class="stat-box"><div class="stat-val">${wins.ICON}</div><div class="stat-label">بردهای ICON</div></div>
+    `;
+  }
+  if (modalLogList) {
+    if (logs.length === 0) {
+      modalLogList.innerHTML = `<div class="empty-logs-msg">هنوز هیچ گزارشی ثبت نشده است. از پنل راستی‌آزمایی زیر هر کارت، وضعیت واقعی را ثبت کن!</div>`;
+    } else {
+      modalLogList.innerHTML = logs.map(l => {
+        const winners = (l.userVerdict?.accurateModels || []).filter(m => m !== 'none');
+        const winnerText = winners.length > 0 ? `🏆 دقیق‌ترین: ${winners.join('، ')}` : (l.userVerdict?.accurateModels?.includes('none') ? '❌ هیچ‌کدام' : 'نامشخص');
+        const rainLabel = { dry: '☀️ بدون باران', light: '🌦️ رگبار/نم‌نم', heavy: '🌧️ باران مداوم' }[l.userVerdict?.realRain] || '';
+        const windLabel = { calm: '🍃 باد آرام', moderate: '💨 باد متوسط', storm: '🌪️ تندباد شدید' }[l.userVerdict?.realWind] || '';
+        const noteHtml = l.userVerdict?.notes ? `<div class="log-entry-note">${escapeHtml(l.userVerdict.notes)}</div>` : '';
+        return `
+          <div class="log-entry-item">
+            <div class="log-entry-header">
+              <span>📍 ${escapeHtml(l.city)} (${l.dateIso})</span>
+              <span class="log-tag winner">${winnerText}</span>
+            </div>
+            <div class="log-entry-tags">
+              ${rainLabel ? `<span class="log-tag">${rainLabel}</span>` : ''}
+              ${windLabel ? `<span class="log-tag">${windLabel}</span>` : ''}
+            </div>
+            ${noteHtml}
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+btnLogs?.addEventListener('click', openLogModal);
+btnCloseModal?.addEventListener('click', closeLogModal);
+logModal?.addEventListener('click', (e) => {
+  if (e.target === logModal) closeLogModal();
+});
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && logModal && !logModal.classList.contains('hidden')) {
+      closeLogModal();
+    }
+  });
+}
+
+btnDownloadJson?.addEventListener('click', () => {
+  const logs = getRealityLogs();
+  if (logs.length === 0) {
+    showToast('هیچ لاگی برای دانلود وجود ندارد');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `weather_iran_logs_${toIsoDate(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('فایل JSON دانلود شد');
+});
+
+btnCopyJson?.addEventListener('click', async () => {
+  const logs = getRealityLogs();
+  if (logs.length === 0) {
+    showToast('هیچ لاگی برای کپی وجود ندارد');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(logs, null, 2));
+    showToast('متن JSON در کلیپ‌بورد کپی شد');
+  } catch (err) {
+    showToast('خطا در کپی کلیپ‌بورد');
+  }
+});
+
+btnClearLogs?.addEventListener('click', () => {
+  if (confirm('آیا مطمئن هستید که می‌خواهید تمام لاگ‌های ثبت‌شده را پاک کنید؟')) {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.removeItem('weather_reality_logs');
+    } catch (e) {}
+    updateLogCounter();
+    renderModalContent();
+    showToast('تمام لاگ‌ها پاک شدند');
+  }
+});
+
 // راه‌اندازی اولیه
+updateLogCounter();
 renderWelcomeMessage();
