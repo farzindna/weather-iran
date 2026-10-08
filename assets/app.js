@@ -912,15 +912,21 @@ function renderRealityCard(day, location) {
   const savedWind = saved?.userVerdict?.realWind || '';
   const savedNote = saved?.userVerdict?.notes || '';
 
+  const noneActive = savedWinner.includes('none');
+
   const modelBoxes = day.perModel.map(m => {
+    const isSelected = savedWinner.includes(m.model);
     const w = getWmoInfo(m.wmo);
     const rainStr = m.precip > 0 ? `${m.precip} mm` : 'بدون بارش';
     const windStr = m.windSpeed != null ? `${m.windSpeed} ک/س` : '—';
     const gustStr = m.windGust != null ? ` (تندباد ${m.windGust})` : '';
     return `
-      <div class="model-box">
+      <div class="model-box${isSelected ? ' is-selected' : ''}" data-model="${m.model}" role="button" tabindex="0" title="برای انتخابِ این مدل کلیک کنید">
         <div class="model-box-header">
-          <span class="model-box-name">${m.model}</span>
+          <div class="model-box-title">
+            <span class="model-check-circle">${isSelected ? '✓' : ''}</span>
+            <span class="model-box-name">${m.model}</span>
+          </div>
           <span class="model-box-cond">${w.icon} ${w.desc.split(' ')[0]}</span>
         </div>
         <div class="model-box-metrics">
@@ -928,15 +934,12 @@ function renderRealityCard(day, location) {
           <div class="model-metric-item"><span>بارش:</span><span class="model-metric-val">${rainStr}</span></div>
           <div class="model-metric-item"><span>باد:</span><span class="model-metric-val">${windStr}${gustStr}</span></div>
         </div>
+        <div class="model-box-select-hint">
+          <span class="hint-label">${isSelected ? '✅ این مدل درست گفت' : '👈 بزن روش تا انتخاب بشه'}</span>
+        </div>
       </div>
     `;
   }).join('');
-
-  const modelChips = day.perModel.map(m => {
-    const active = savedWinner.includes(m.model) ? ' active' : '';
-    return `<button type="button" class="chip-choice${active}" data-model="${m.model}">✓ ${m.model}</button>`;
-  }).join('');
-  const noneActive = savedWinner.includes('none') ? ' active' : '';
 
   const rainTags = [
     { val: 'dry', label: '☀️ نبارید' },
@@ -960,17 +963,14 @@ function renderRealityCard(day, location) {
         <button type="button" class="btn-reality-toggle" title="جمع یا باز کردن">▼</button>
       </div>
       <div class="reality-body">
+        <div class="model-selection-bar">
+          <span class="model-selection-title">👇 مدل دقیق رو بزن روش تا انتخاب بشه (برگه‌اش سبز می‌شه):</span>
+          <button type="button" class="btn-select-none${noneActive ? ' active' : ''}" data-model="none">❌ هیچ‌کدوم درست نبود</button>
+        </div>
         <div class="models-compare-grid">
           ${modelBoxes}
         </div>
         <div class="reality-feedback-form">
-          <div class="feedback-group">
-            <span class="feedback-label">کی راست گفت؟ (مدل‌های دقیق‌تر رو انتخاب کن):</span>
-            <div class="model-check-chips">
-              ${modelChips}
-              <button type="button" class="chip-choice${noneActive}" data-model="none">❌ هیچ‌کدام</button>
-            </div>
-          </div>
           <div class="feedback-row">
             <div class="feedback-group">
               <span class="feedback-label">واقعیت بارش:</span>
@@ -1380,18 +1380,35 @@ function appendAssistantMessage(data) {
       card.classList.toggle('is-collapsed');
     });
 
-    const chips = card.querySelectorAll('.chip-choice');
-    chips.forEach(chip => {
-      chip.addEventListener('click', () => {
-        const isNone = chip.dataset.model === 'none';
-        if (isNone) {
-          chips.forEach(c => c.classList.remove('active'));
-          chip.classList.add('active');
-        } else {
-          card.querySelector('.chip-choice[data-model="none"]')?.classList.remove('active');
-          chip.classList.toggle('active');
+    const modelBoxes = card.querySelectorAll('.model-box');
+    const noneBtn = card.querySelector('.btn-select-none');
+
+    modelBoxes.forEach(box => {
+      box.addEventListener('click', () => {
+        const isSelected = box.classList.toggle('is-selected');
+        const checkCircle = box.querySelector('.model-check-circle');
+        const hintLabel = box.querySelector('.hint-label');
+        if (checkCircle) checkCircle.textContent = isSelected ? '✓' : '';
+        if (hintLabel) hintLabel.textContent = isSelected ? '✅ این مدل درست گفت' : '👈 بزن روش تا انتخاب بشه';
+
+        // اگر مدلی انتخاب شد، دکمه‌ی «هیچ‌کدوم» خاموش شود
+        if (isSelected && noneBtn) {
+          noneBtn.classList.remove('active');
         }
       });
+    });
+
+    noneBtn?.addEventListener('click', () => {
+      const isNone = noneBtn.classList.toggle('active');
+      if (isNone) {
+        modelBoxes.forEach(box => {
+          box.classList.remove('is-selected');
+          const checkCircle = box.querySelector('.model-check-circle');
+          const hintLabel = box.querySelector('.hint-label');
+          if (checkCircle) checkCircle.textContent = '';
+          if (hintLabel) hintLabel.textContent = '👈 بزن روش تا انتخاب بشه';
+        });
+      }
     });
 
     ['rain', 'wind'].forEach(type => {
@@ -1410,7 +1427,10 @@ function appendAssistantMessage(data) {
     saveBtn?.addEventListener('click', () => {
       const dateIso = saveBtn.dataset.date;
       const city = saveBtn.dataset.city;
-      const activeModels = [...card.querySelectorAll('.chip-choice.active')].map(c => c.dataset.model);
+      const isNone = noneBtn?.classList.contains('active');
+      const activeModels = isNone
+        ? ['none']
+        : [...card.querySelectorAll('.model-box.is-selected')].map(c => c.dataset.model);
       const activeRain = card.querySelector('.tag-btn[data-type="rain"].active')?.dataset.val || '';
       const activeWind = card.querySelector('.tag-btn[data-type="wind"].active')?.dataset.val || '';
       const notes = card.querySelector('.reality-note-input')?.value.trim() || '';

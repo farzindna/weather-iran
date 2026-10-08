@@ -250,6 +250,8 @@ function check(name, cond, detail) {
   {
     const { s } = await single('راستی‌آزمایی امروز', 'امروز تهران چطوره', { city: 'تهران', n: 1 });
     check('پنل راستی‌آزمایی فقط برای امروز نمایش داده می‌شود', s.html.includes('reality-card') && s.html.includes('راستی‌آزمایی'), '');
+    check('برگه‌های مدل‌ها مستقیماً برای انتخاب طراحی شده‌اند', s.html.includes('model-box') && s.html.includes('model-selection-bar') && s.html.includes('btn-select-none'), '');
+    check('دکمه‌های تکراری چیپ از پایین حذف شده‌اند', !s.html.includes('chip-choice'), '');
   }
 
   console.log('\n== بی‌ربط و احوال‌پرسی ==');
