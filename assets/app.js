@@ -955,7 +955,7 @@ function renderRealityCard(day, location) {
       <div class="reality-header">
         <div class="reality-title-wrap">
           <div class="reality-badge">🎯 راستی‌آزمایی و مقایسه‌ی مدل‌ها ${saved ? '<span>(✅ ثبت‌شده)</span>' : ''}</div>
-          <div class="reality-subtitle">${day.jalali.full} — ${escapeHtml(location.name)} (پیش‌بینیِ هر مدل چقدر درست بود؟)</div>
+          <div class="reality-subtitle">${day.jalali.full} (امروز) — ${escapeHtml(location.name)} (پیش‌بینیِ هر مدل چقدر درست بود؟)</div>
         </div>
         <button type="button" class="btn-reality-toggle" title="جمع یا باز کردن">▼</button>
       </div>
@@ -1251,7 +1251,8 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
     `;
   });
 
-  const realityDay = statDays.find(d => daysBetween(today, d.date) === 0) || (focusDay || statDays[0]);
+  // راستی‌آزمایی فقط برای روزِ جاری (امروز) نمایش داده می‌شود چون آینده هنوز رخ نداده
+  const realityDay = statDays.find(d => daysBetween(today, d.date) === 0);
   const realityHtml = (!isHistorical && realityDay && realityDay.perModel && realityDay.perModel.length > 0)
     ? renderRealityCard(realityDay, location)
     : '';

@@ -245,7 +245,11 @@ function check(name, cond, detail) {
   {
     const { s } = await single('باد در تهران', 'فردا تهران باد میاد؟', { city: 'تهران', n: 1, textHas: 'باد' });
     check('کارت شامل اطلاعات باد است', s.html.includes('day-card-wind'), '');
-    check('پنل راستی‌آزمایی در کارت‌ها وجود دارد', s.html.includes('reality-card') && s.html.includes('راستی‌آزمایی'), '');
+    check('برای فردا پنل راستی‌آزمایی مخفی است (هنوز اتفاق نیفتاده)', !s.html.includes('reality-card'), '');
+  }
+  {
+    const { s } = await single('راستی‌آزمایی امروز', 'امروز تهران چطوره', { city: 'تهران', n: 1 });
+    check('پنل راستی‌آزمایی فقط برای امروز نمایش داده می‌شود', s.html.includes('reality-card') && s.html.includes('راستی‌آزمایی'), '');
   }
 
   console.log('\n== بی‌ربط و احوال‌پرسی ==');
