@@ -245,6 +245,7 @@ function check(name, cond, detail) {
   {
     const { s } = await single('باد در تهران', 'فردا تهران باد میاد؟', { city: 'تهران', n: 1, textHas: 'باد' });
     check('کارت شامل اطلاعات باد است', s.html.includes('day-card-wind'), '');
+    check('آیکون باد SVG است و واحد به km/h تغییر کرده', s.html.includes('wind-icon-svg') && s.html.includes('km/h') && !s.html.includes('ک/س'), '');
     check('برای فردا پنل راستی‌آزمایی مخفی است (هنوز اتفاق نیفتاده)', !s.html.includes('reality-card'), '');
   }
   {

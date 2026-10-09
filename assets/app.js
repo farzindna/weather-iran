@@ -896,15 +896,15 @@ function describeWind(day) {
   if (day.windMax == null) return 'داده‌ی باد در دسترس نیست';
   const gust = day.gustMax;
   if (gust && gust >= 55) {
-    return `وزش باد بسیار شدید و تندباد لحظه‌ای تا **${gust} کیلومتر بر ساعت** 🌪️`;
+    return `وزش باد بسیار شدید و تندباد لحظه‌ای تا **${gust} km/h** 🌪️`;
   }
   if (gust && gust >= 38) {
-    return `وزش باد قابل‌توجه (سرعت تا **${day.windMax}** و تندباد لحظه‌ای تا **${gust} ک/س**) 💨`;
+    return `وزش باد قابل‌توجه (سرعت تا **${day.windMax}** و تندباد لحظه‌ای تا **${gust} km/h**) 💨`;
   }
   if (day.windMax >= 25) {
-    return `وزش باد ملایم تا متوسط (تا **${day.windMax} ک/س**) 🍃`;
+    return `وزش باد ملایم تا متوسط (تا **${day.windMax} km/h**) 🍃`;
   }
-  return `باد آرام (تا **${day.windMax} ک/س**)`;
+  return `باد آرام (تا **${day.windMax} km/h**)`;
 }
 
 const isWindy = d => (d.gustMax != null && d.gustMax >= 38) || (d.windMax != null && d.windMax >= 25);
@@ -952,8 +952,8 @@ function renderRealityCard(day, location) {
     const isSelected = !noneActive && savedWinner.includes(m.model);
     const w = getWmoInfo(m.wmo);
     const rainStr = m.precip > 0 ? `${m.precip} mm` : 'بدون بارش';
-    const windStr = m.windSpeed != null ? `${m.windSpeed} ک/س` : '—';
-    const gustStr = m.windGust != null ? ` (تندباد ${m.windGust})` : '';
+    const windStr = m.windSpeed != null ? `${m.windSpeed} km/h` : '—';
+    const gustStr = m.windGust != null ? ` (تندباد ${m.windGust} km/h)` : '';
     return `
       <div class="model-box${isSelected ? ' is-selected' : ''}" data-model="${m.model}" role="button" tabindex="0" title="برای انتخابِ این مدل کلیک کنید">
         <div class="model-box-header">
@@ -1152,8 +1152,8 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
     if (windyDays.length > 0) {
       const peakWindDay = [...statDays].sort((a, b) => ((b.gustMax || b.windMax || 0) - (a.gustMax || a.windMax || 0)))[0];
       summaryText = `تو ${dateRangeStr} تو **${location.name}** وزش باد داریم 💨\n\n` +
-        `بیشترین شدت باد روز **${peakWindDay.jalali.weekday} (${peakWindDay.jalali.short})** با سرعت تا **${peakWindDay.windMax} ک/س**` +
-        (peakWindDay.gustMax ? ` (تندباد لحظه‌ای تا **${peakWindDay.gustMax} ک/س**)` : '') + ` پیش‌بینی شده. ` +
+        `بیشترین شدت باد روز **${peakWindDay.jalali.weekday} (${peakWindDay.jalali.short})** با سرعت تا **${peakWindDay.windMax} km/h**` +
+        (peakWindDay.gustMax ? ` (تندباد لحظه‌ای تا **${peakWindDay.gustMax} km/h**)` : '') + ` پیش‌بینی شده. ` +
         `دما هم بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه.`;
     } else {
       summaryText = `خیالت تخت! تو ${dateRangeStr} تو **${location.name}** باد شدیدی در پیش نیست و هوا در کل آرومه 🍃\n\n` +
@@ -1183,7 +1183,7 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
     if (windyDays.length > 0) {
       const peakWindDay = [...statDays].sort((a, b) => ((b.gustMax || b.windMax || 0) - (a.gustMax || a.windMax || 0)))[0];
       summaryText = `تو ${dateRangeStr} هوای **${location.name}** بدون بارشِ جدیه، ولی وزش باد داریم 💨\n\n` +
-        `بیشترین شدت باد روز **${peakWindDay.jalali.weekday} (${peakWindDay.jalali.short})** با سرعت تا **${peakWindDay.windMax}** و تندباد تا **${peakWindDay.gustMax || peakWindDay.windMax} ک/س** تخمین زده شده. ` +
+        `بیشترین شدت باد روز **${peakWindDay.jalali.weekday} (${peakWindDay.jalali.short})** با سرعت تا **${peakWindDay.windMax} km/h** و تندباد تا **${peakWindDay.gustMax || peakWindDay.windMax} km/h** تخمین زده شده. ` +
         `دما هم بین **${lowestTemp}° تا ${highestTemp}°** در نوسانه.`;
     } else {
       summaryText = `هوای **${location.name}** تو ${dateRangeStr} کاملاً آروم و پایداره 🌤️\n\n` +
@@ -1273,14 +1273,15 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
       precipBlock += `<span class="day-card-tag" title="${precipTitle}">پارسال</span>`;
     }
 
+    const windSvg = `<svg class="wind-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/></svg>`;
     const windTitle = day.windMax != null
-      ? `حداکثر سرعت باد: ${day.windMax} کیلومتر بر ساعت${day.gustMax ? ` · تندباد لحظه‌ای تا ${day.gustMax} ک/س` : ''}`
+      ? `حداکثر سرعت باد: ${day.windMax} km/h${day.gustMax ? ` · تندباد لحظه‌ای تا ${day.gustMax} km/h` : ''}`
       : '';
     const windClass = (day.gustMax >= 50 || day.windMax >= 35) ? ' is-high-wind' : (day.gustMax >= 38 || day.windMax >= 25 ? ' is-windy' : '');
     const windBlock = day.windMax != null
       ? `<div class="day-card-wind${windClass}" title="${windTitle}">
-          <span>💨</span>
-          <span>${day.windMax}${day.gustMax && day.gustMax >= 35 ? ` (${day.gustMax})` : ''} <small>ک/س</small></span>
+          ${windSvg}
+          <span>${day.windMax}${day.gustMax && day.gustMax >= 35 ? ` (${day.gustMax})` : ''} <small>km/h</small></span>
         </div>`
       : '';
 
