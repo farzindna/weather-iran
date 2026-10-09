@@ -252,6 +252,7 @@ function check(name, cond, detail) {
     check('پنل راستی‌آزمایی فقط برای امروز نمایش داده می‌شود', s.html.includes('reality-card') && s.html.includes('راستی‌آزمایی'), '');
     check('برگه‌های مدل‌ها مستقیماً برای انتخاب طراحی شده‌اند', s.html.includes('model-box') && s.html.includes('model-selection-bar') && s.html.includes('btn-select-none'), '');
     check('دکمه‌های تکراری چیپ از پایین حذف شده‌اند', !s.html.includes('chip-choice'), '');
+    check('انتخاب نوبت‌های روز (صبح/عصر/شب/کل‌روز) در پنل وجود دارد', s.html.includes('reality-slot-bar') && s.html.includes('morning') && s.html.includes('afternoon') && s.html.includes('night'), '');
   }
 
   console.log('\n== بی‌ربط و احوال‌پرسی ==');

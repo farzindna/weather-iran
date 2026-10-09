@@ -848,6 +848,24 @@ function rangeChips(cityName, start, end) {
     .map((o, i) => ({ label: (i === 0 ? '📅 ' : '') + o.label, query: o.query }));
 }
 
+const TIME_SLOTS = [
+  { id: 'morning', label: '🌅 صبح (۶ تا ۱۲)', short: 'صبح' },
+  { id: 'afternoon', label: '☀️ ظهر تا عصر (۱۲ تا ۱۸)', short: 'ظهر تا عصر' },
+  { id: 'night', label: '🌙 شب (۱۸ تا ۲۴)', short: 'شب' },
+  { id: 'fullday', label: '📅 کل روز (جمع‌بندی)', short: 'کل روز' },
+];
+
+function getDefaultSlot() {
+  try {
+    const h = new Date().getHours();
+    if (h >= 6 && h < 12) return 'morning';
+    if (h >= 12 && h < 18) return 'afternoon';
+    return 'night';
+  } catch (e) {
+    return 'afternoon';
+  }
+}
+
 function getRealityLogs() {
   try {
     if (typeof localStorage === 'undefined') return [];
@@ -861,7 +879,8 @@ function saveRealityLog(entry) {
   try {
     if (typeof localStorage === 'undefined') return;
     const logs = getRealityLogs();
-    const idx = logs.findIndex(l => l.dateIso === entry.dateIso && l.city === entry.city);
+    const entrySlot = entry.slot || 'fullday';
+    const idx = logs.findIndex(l => l.dateIso === entry.dateIso && l.city === entry.city && (l.slot || 'fullday') === entrySlot);
     if (idx >= 0) {
       logs[idx] = { ...logs[idx], ...entry };
     } else {
@@ -905,17 +924,32 @@ function getRainDissent(d) {
 
 function renderRealityCard(day, location) {
   if (!day || !day.perModel || day.perModel.length === 0) return '';
-  const logs = getRealityLogs();
-  const saved = logs.find(l => l.dateIso === day.iso && l.city === location.name);
+  const allLogs = getRealityLogs();
+  const dayLogs = allLogs.filter(l => l.dateIso === day.iso && l.city === location.name);
+  const initialSlot = getDefaultSlot();
+  const savedForInit = dayLogs.find(l => (l.slot || 'fullday') === initialSlot);
+  const activeSlot = savedForInit ? initialSlot : (dayLogs.length > 0 ? (dayLogs[0].slot || 'fullday') : initialSlot);
+  const saved = dayLogs.find(l => (l.slot || 'fullday') === activeSlot);
+
   const savedWinner = saved?.userVerdict?.accurateModels || [];
   const savedRain = saved?.userVerdict?.realRain || '';
   const savedWind = saved?.userVerdict?.realWind || '';
   const savedNote = saved?.userVerdict?.notes || '';
-
   const noneActive = savedWinner.includes('none');
 
+  const slotPills = TIME_SLOTS.map(s => {
+    const isSaved = dayLogs.some(l => (l.slot || 'fullday') === s.id);
+    const isActive = s.id === activeSlot;
+    return `
+      <button type="button" class="slot-pill-btn${isActive ? ' active' : ''}${isSaved ? ' has-saved' : ''}" data-slot="${s.id}">
+        <span class="slot-pill-text">${s.label}</span>
+        ${isSaved ? '<span class="slot-saved-badge" title="ثبت‌شده">✓</span>' : ''}
+      </button>
+    `;
+  }).join('');
+
   const modelBoxes = day.perModel.map(m => {
-    const isSelected = savedWinner.includes(m.model);
+    const isSelected = !noneActive && savedWinner.includes(m.model);
     const w = getWmoInfo(m.wmo);
     const rainStr = m.precip > 0 ? `${m.precip} mm` : 'بدون بارش';
     const windStr = m.windSpeed != null ? `${m.windSpeed} ک/س` : '—';
@@ -953,18 +987,34 @@ function renderRealityCard(day, location) {
     { val: 'storm', label: '🌪️ تندباد شدید' }
   ].map(t => `<button type="button" class="tag-btn${savedWind === t.val ? ' active' : ''}" data-type="wind" data-val="${t.val}">${t.label}</button>`).join('');
 
+  const activeSlotObj = TIME_SLOTS.find(s => s.id === activeSlot) || { short: activeSlot };
+  const saveBtnText = saved ? `💾 بروزرسانی گزارش (${activeSlotObj.short})` : `💾 ثبت گزارش (${activeSlotObj.short})`;
+  const statusMsgText = saved
+    ? `✅ گزارش ${activeSlotObj.short} در حافظه ذخیره است (ساعت ${saved.timeStr || '—'})`
+    : `برای نوبت ${activeSlotObj.short} هنوز ثبت نشده`;
+
   return `
-    <div class="reality-card" data-date="${day.iso}" data-city="${escapeHtml(location.name)}">
+    <div class="reality-card" data-date="${day.iso}" data-city="${escapeHtml(location.name)}" data-current-slot="${activeSlot}">
       <div class="reality-header">
         <div class="reality-title-wrap">
-          <div class="reality-badge">🎯 راستی‌آزمایی و مقایسه‌ی مدل‌ها ${saved ? '<span>(✅ ثبت‌شده)</span>' : ''}</div>
-          <div class="reality-subtitle">${day.jalali.full} (امروز) — ${escapeHtml(location.name)} (پیش‌بینیِ هر مدل چقدر درست بود؟)</div>
+          <div class="reality-badge">🎯 راستی‌آزمایی و مقایسه‌ی مدل‌ها ${dayLogs.length > 0 ? `<span>(✅ ${dayLogs.length} نوبت ثبت‌شده)</span>` : ''}</div>
+          <div class="reality-subtitle">${day.jalali.full} (امروز) — ${escapeHtml(location.name)} (پیش‌بینیِ هر مدل در نوبت‌های مختلف چقدر درست بود؟)</div>
         </div>
         <button type="button" class="btn-reality-toggle" title="جمع یا باز کردن">▼</button>
       </div>
       <div class="reality-body">
+        <div class="reality-slot-bar">
+          <div class="slot-bar-header">
+            <span class="slot-bar-title">🕒 بازه زمانی ثبت مشاهده (نوبت روز):</span>
+            <span class="slot-bar-counter">${dayLogs.length > 0 ? `(${dayLogs.length} نوبت برای امروز ثبت شده)` : '(می‌تونی برای چند نوبت روز ثبت کنی)'}</span>
+          </div>
+          <div class="slot-pills-wrap">
+            ${slotPills}
+          </div>
+        </div>
+
         <div class="model-selection-bar">
-          <span class="model-selection-title">👇 مدل دقیق رو بزن روش تا انتخاب بشه (برگه‌اش سبز می‌شه):</span>
+          <span class="model-selection-title">👇 مدل دقیقِ این بازه رو بزن روش (برگه‌اش سبز می‌شه):</span>
           <button type="button" class="btn-select-none${noneActive ? ' active' : ''}" data-model="none">❌ هیچ‌کدوم درست نبود</button>
         </div>
         <div class="models-compare-grid">
@@ -973,25 +1023,25 @@ function renderRealityCard(day, location) {
         <div class="reality-feedback-form">
           <div class="feedback-row">
             <div class="feedback-group">
-              <span class="feedback-label">واقعیت بارش:</span>
+              <span class="feedback-label">واقعیت بارش در این بازه:</span>
               <div class="tag-choices">
                 ${rainTags}
               </div>
             </div>
             <div class="feedback-group">
-              <span class="feedback-label">واقعیت باد:</span>
+              <span class="feedback-label">واقعیت باد در این بازه:</span>
               <div class="tag-choices">
                 ${windTags}
               </div>
             </div>
           </div>
           <div class="feedback-group">
-            <span class="feedback-label">یادداشت و گزارش میدانی شما (اختیاری):</span>
-            <textarea class="reality-note-input" placeholder="مثلاً: مدل ICON بارون رو دقیق گرفت، از ساعت ۴ عصر هم تندباد شروع شد...">${escapeHtml(savedNote)}</textarea>
+            <span class="feedback-label">یادداشت و گزارش میدانی شما در این بازه (اختیاری):</span>
+            <textarea class="reality-note-input" placeholder="مثلاً: صبح ابری و آروم بود، ولی از ظهر به بعد باد شدید شد و نم‌نم بارید...">${escapeHtml(savedNote)}</textarea>
           </div>
           <div class="reality-actions">
-            <button type="button" class="btn-save-reality" data-date="${day.iso}" data-city="${escapeHtml(location.name)}">💾 ${saved ? 'بروزرسانی گزارش این روز' : 'ثبت گزارش این روز'}</button>
-            <span class="save-status-msg">${saved ? 'قبلاً در حافظه ذخیره شده' : ''}</span>
+            <button type="button" class="btn-save-reality" data-date="${day.iso}" data-city="${escapeHtml(location.name)}">${saveBtnText}</button>
+            <span class="save-status-msg">${statusMsgText}</span>
           </div>
         </div>
       </div>
@@ -1380,8 +1430,63 @@ function appendAssistantMessage(data) {
       card.classList.toggle('is-collapsed');
     });
 
+    const slotBtns = card.querySelectorAll('.slot-pill-btn');
     const modelBoxes = card.querySelectorAll('.model-box');
     const noneBtn = card.querySelector('.btn-select-none');
+    const rainTags = card.querySelectorAll('.tag-btn[data-type="rain"]');
+    const windTags = card.querySelectorAll('.tag-btn[data-type="wind"]');
+    const noteInput = card.querySelector('.reality-note-input');
+    const saveBtn = card.querySelector('.btn-save-reality');
+    const statusMsg = card.querySelector('.save-status-msg');
+    const dateIso = card.dataset.date;
+    const city = card.dataset.city;
+
+    function applySlot(targetSlot) {
+      card.dataset.currentSlot = targetSlot;
+      slotBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.slot === targetSlot));
+      const logs = getRealityLogs();
+      const entry = logs.find(l => l.dateIso === dateIso && l.city === city && (l.slot || 'fullday') === targetSlot);
+      const slotObj = TIME_SLOTS.find(s => s.id === targetSlot) || { short: targetSlot };
+
+      if (entry) {
+        const winner = entry.userVerdict?.accurateModels || [];
+        const isNone = winner.includes('none');
+        noneBtn?.classList.toggle('active', isNone);
+        modelBoxes.forEach(box => {
+          const isSelected = !isNone && winner.includes(box.dataset.model);
+          box.classList.toggle('is-selected', isSelected);
+          const checkCircle = box.querySelector('.model-check-circle');
+          const hintLabel = box.querySelector('.hint-label');
+          if (checkCircle) checkCircle.textContent = isSelected ? '✓' : '';
+          if (hintLabel) hintLabel.textContent = isSelected ? '✅ این مدل درست گفت' : '👈 بزن روش تا انتخاب بشه';
+        });
+        rainTags.forEach(t => t.classList.toggle('active', t.dataset.val === entry.userVerdict?.realRain));
+        windTags.forEach(t => t.classList.toggle('active', t.dataset.val === entry.userVerdict?.realWind));
+        if (noteInput) noteInput.value = entry.userVerdict?.notes || '';
+        if (saveBtn) saveBtn.textContent = `💾 بروزرسانی گزارش (${slotObj.short})`;
+        if (statusMsg) statusMsg.textContent = `✅ گزارش ${slotObj.short} در حافظه موجود است (ساعت ${entry.timeStr || '—'})`;
+      } else {
+        noneBtn?.classList.remove('active');
+        modelBoxes.forEach(box => {
+          box.classList.remove('is-selected');
+          const checkCircle = box.querySelector('.model-check-circle');
+          const hintLabel = box.querySelector('.hint-label');
+          if (checkCircle) checkCircle.textContent = '';
+          if (hintLabel) hintLabel.textContent = '👈 بزن روش تا انتخاب بشه';
+        });
+        rainTags.forEach(t => t.classList.remove('active'));
+        windTags.forEach(t => t.classList.remove('active'));
+        if (noteInput) noteInput.value = '';
+        if (saveBtn) saveBtn.textContent = `💾 ثبت گزارش (${slotObj.short})`;
+        if (statusMsg) statusMsg.textContent = `برای نوبت ${slotObj.short} هنوز ثبت نشده`;
+      }
+    }
+
+    slotBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        applySlot(btn.dataset.slot);
+      });
+    });
 
     modelBoxes.forEach(box => {
       box.addEventListener('click', () => {
@@ -1422,25 +1527,29 @@ function appendAssistantMessage(data) {
       });
     });
 
-    const saveBtn = card.querySelector('.btn-save-reality');
-    const statusMsg = card.querySelector('.save-status-msg');
     saveBtn?.addEventListener('click', () => {
-      const dateIso = saveBtn.dataset.date;
-      const city = saveBtn.dataset.city;
+      const currentSlot = card.dataset.currentSlot || getDefaultSlot();
+      const slotObj = TIME_SLOTS.find(s => s.id === currentSlot) || { id: currentSlot, label: currentSlot, short: currentSlot };
       const isNone = noneBtn?.classList.contains('active');
       const activeModels = isNone
         ? ['none']
         : [...card.querySelectorAll('.model-box.is-selected')].map(c => c.dataset.model);
       const activeRain = card.querySelector('.tag-btn[data-type="rain"].active')?.dataset.val || '';
       const activeWind = card.querySelector('.tag-btn[data-type="wind"].active')?.dataset.val || '';
-      const notes = card.querySelector('.reality-note-input')?.value.trim() || '';
+      const notes = noteInput ? noteInput.value.trim() : '';
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
       const targetDay = data.rawDays?.find(d => d.iso === dateIso);
       const logEntry = {
-        id: `${dateIso}_${city}`,
+        id: `${dateIso}_${city}_${currentSlot}`,
         dateIso,
         city,
+        slot: currentSlot,
+        slotLabel: slotObj.label,
         timestamp: Date.now(),
+        timeStr,
         ensemble: targetDay ? {
           maxTemp: targetDay.maxTemp,
           minTemp: targetDay.minTemp,
@@ -1459,8 +1568,36 @@ function appendAssistantMessage(data) {
       };
       saveRealityLog(logEntry);
       updateLogCounter();
-      if (statusMsg) statusMsg.textContent = '✅ با موفقیت ذخیره شد!';
-      showToast('گزارش وضعیت واقعی در حافظه مرورگر ثبت شد');
+
+      // علامت تیک روی دکمه‌ی نوبت در صورت ثبت جدید
+      const curSlotBtn = card.querySelector(`.slot-pill-btn[data-slot="${currentSlot}"]`);
+      if (curSlotBtn) {
+        curSlotBtn.classList.add('has-saved');
+        if (!curSlotBtn.querySelector('.slot-saved-badge')) {
+          const badge = document.createElement('span');
+          badge.className = 'slot-saved-badge';
+          badge.title = 'ثبت‌شده';
+          badge.textContent = '✓';
+          curSlotBtn.appendChild(badge);
+        }
+      }
+
+      // بروزرسانی کانتر نوبت‌های امروز در هدر کارت
+      const dayLogs = getRealityLogs().filter(l => l.dateIso === dateIso && l.city === city);
+      const badgeElem = card.querySelector('.reality-badge');
+      if (badgeElem) {
+        badgeElem.innerHTML = `🎯 راستی‌آزمایی و مقایسه‌ی مدل‌ها <span>(✅ ${dayLogs.length} نوبت ثبت‌شده)</span>`;
+      }
+      const counterElem = card.querySelector('.slot-bar-counter');
+      if (counterElem) {
+        counterElem.textContent = `(${dayLogs.length} نوبت برای امروز ثبت شده)`;
+      }
+
+      if (saveBtn) saveBtn.textContent = `💾 بروزرسانی گزارش (${slotObj.short})`;
+      if (statusMsg) {
+        statusMsg.textContent = `✅ ذخیره شد (نوبت ${slotObj.short} · ساعت ${timeStr})`;
+      }
+      showToast(`گزارش نوبت ${slotObj.short} با موفقیت ثبت شد`);
     });
   });
 
@@ -1767,7 +1904,7 @@ function renderModalContent() {
       });
     });
     modalStats.innerHTML = `
-      <div class="stat-box"><div class="stat-val">${total}</div><div class="stat-label">کل گزارش‌ها</div></div>
+      <div class="stat-box"><div class="stat-val">${total}</div><div class="stat-label">کل ثبت‌ها (نوبت‌ها)</div></div>
       <div class="stat-box"><div class="stat-val">${wins.ECMWF}</div><div class="stat-label">بردهای ECMWF</div></div>
       <div class="stat-box"><div class="stat-val">${wins.GFS}</div><div class="stat-label">بردهای GFS</div></div>
       <div class="stat-box"><div class="stat-val">${wins.ICON}</div><div class="stat-label">بردهای ICON</div></div>
@@ -1783,10 +1920,15 @@ function renderModalContent() {
         const rainLabel = { dry: '☀️ بدون باران', light: '🌦️ رگبار/نم‌نم', heavy: '🌧️ باران مداوم' }[l.userVerdict?.realRain] || '';
         const windLabel = { calm: '🍃 باد آرام', moderate: '💨 باد متوسط', storm: '🌪️ تندباد شدید' }[l.userVerdict?.realWind] || '';
         const noteHtml = l.userVerdict?.notes ? `<div class="log-entry-note">${escapeHtml(l.userVerdict.notes)}</div>` : '';
+        const slotText = l.slotLabel || (l.slot === 'morning' ? '🌅 صبح' : l.slot === 'afternoon' ? '☀️ ظهر تا عصر' : l.slot === 'night' ? '🌙 شب' : '📅 کل روز');
+        const timeBadge = l.timeStr ? ` · ساعت ${l.timeStr}` : '';
         return `
           <div class="log-entry-item">
             <div class="log-entry-header">
-              <span>📍 ${escapeHtml(l.city)} (${l.dateIso})</span>
+              <div class="log-entry-location">
+                <span class="log-city">📍 ${escapeHtml(l.city)} (${l.dateIso})</span>
+                <span class="log-slot-badge">${escapeHtml(slotText)}${timeBadge}</span>
+              </div>
               <span class="log-tag winner">${winnerText}</span>
             </div>
             <div class="log-entry-tags">
