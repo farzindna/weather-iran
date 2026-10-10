@@ -20,12 +20,21 @@ if (!is_dir($storageDir)) {
 }
 $storageFile = $storageDir . '/weather_feedbacks.json';
 
+// تنظیماتِ محرمانه (WEATHER_ADMIN_KEY) فقط در weather_config.php کنارِ همین فایل رویِ سرور — هرگز در repo
+if (file_exists(__DIR__ . '/weather_config.php')) {
+    require_once __DIR__ . '/weather_config.php';
+}
+// پوشه‌ی داده نباید مستقیم از مرورگر قابلِ دانلود باشد
+if (!file_exists($storageDir . '/.htaccess')) {
+    @file_put_contents($storageDir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+}
+
 // ۲. عملیات حذف تکی یا پاکسازی کلی لاگ‌ها (کاملاً محافظت‌شده با کلید امنیتی)
 // کلید فقط از تنظیماتِ سرور؛ اگر تنظیم نشده باشد عملیاتِ مدیریتی کلاً بسته است (هیچ رمزی در کدِ عمومی نمی‌آید)
 $adminKey = defined('WEATHER_ADMIN_KEY') ? WEATHER_ADMIN_KEY : (getenv('WEATHER_ADMIN_KEY') ?: '');
+$isAdmin = $adminKey !== '' && hash_equals($adminKey, (string)($_GET['key'] ?? ''));
 if (isset($_GET['action'])) {
-    $providedKey = $_GET['key'] ?? '';
-    if ($adminKey === '' || !hash_equals($adminKey, (string)$providedKey)) {
+    if (!$isAdmin) {
         http_response_code(403);
         die("⛔ خطای دسترسی: عملیات مدیریتی نیازمند کلید امنیتی (key) است.");
     }
@@ -212,6 +221,13 @@ function sendNotificationToBale($data) {
     }
 }
 
+// از اینجا به بعد (خروجیِ JSON و صفحه‌ی نمایشِ فیدبک‌ها) فقط با کلید: ...weather_feedback.php?key=<کلید>
+if (!$isAdmin) {
+    http_response_code(403);
+    header("Content-Type: text/plain; charset=utf-8");
+    die("⛔ برای دیدنِ فیدبک‌ها آدرس را با ?key=<کلید> باز کن.");
+}
+
 // ۳. بازگرداندن داده‌ها به عنوان JSON خام برای پنل ادمین (GET ?format=json)
 if (isset($_GET['format']) && $_GET['format'] === 'json') {
     header("Content-Type: application/json; charset=utf-8");
@@ -373,9 +389,9 @@ $count = count($feedbacks);
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
         <span class="badge">تعداد کل: <?php echo $count; ?> مشاهده</span>
-        <a href="?format=json" class="btn-json" target="_blank">خروجی JSON</a>
+        <a href="?format=json&key=<?php echo urlencode($adminKey); ?>" class="btn-json" target="_blank">خروجی JSON</a>
         <?php if ($count > 0): ?>
-          <a href="?action=clear_all" class="btn-clear" onclick="return confirm('مطمئنی می‌خوای تمام رکوردهای تستی رو پاک کنی؟ این کار قابل بازگشت نیست.')">🗑️ پاکسازی تمام تست‌ها</a>
+          <a href="?action=clear_all&key=<?php echo urlencode($adminKey); ?>" class="btn-clear" onclick="return confirm('مطمئنی می‌خوای تمام رکوردهای تستی رو پاک کنی؟ این کار قابل بازگشت نیست.')">🗑️ پاکسازی تمام تست‌ها</a>
         <?php endif; ?>
       </div>
     </header>
@@ -400,7 +416,7 @@ $count = count($feedbacks);
             <div class="time-badge" style="display: flex; align-items: center; gap: 10px;">
               <span>ساعت ثبت: <?php echo htmlspecialchars($fb['time'] ?? ''); ?> · سرور: <?php echo htmlspecialchars($fb['received_at'] ?? ''); ?></span>
               <?php if (!empty($fb['id'])): ?>
-                <a href="?action=delete&id=<?php echo urlencode($fb['id']); ?>" class="btn-del-item" onclick="return confirm('این رکورد تستی حذف شود؟')">🗑️ حذف</a>
+                <a href="?action=delete&id=<?php echo urlencode($fb['id']); ?>&key=<?php echo urlencode($adminKey); ?>" class="btn-del-item" onclick="return confirm('این رکورد تستی حذف شود؟')">🗑️ حذف</a>
               <?php endif; ?>
             </div>
           </div>

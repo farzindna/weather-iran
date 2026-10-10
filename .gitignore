@@ -2,3 +2,4 @@
 *.log
 node_modules/
 .env
+weather_config.php

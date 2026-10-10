@@ -81,41 +81,11 @@ function doPost(e) {
     }
     msg += "\n🌐 ارسال شده از پل هوشمند هواشناسی";
 
-    // خواندن امن کلیدها و توکن‌ها از Script Properties گوگل (هیچ توکنی نباید در کد عمومی باشد)
-    var scriptProps = PropertiesService.getScriptProperties();
-    var baleToken = scriptProps.getProperty("BALE_BOT_TOKEN");
-    var baleChatId = scriptProps.getProperty("BALE_CHAT_ID");
-    var tgToken = scriptProps.getProperty("TELEGRAM_BOT_TOKEN");
-    var tgChatId = scriptProps.getProperty("TELEGRAM_CHAT_ID");
-
-    // ۲. ارسال پیام به ربات بله (فقط در صورتی که توکن تنظیم شده و سرور ایران قبلاً نفرستاده باشد)
-    if (!data.skipBale && baleToken && baleChatId) {
-      try {
-        var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
-        UrlFetchApp.fetch(baleUrl, {
-          method: "post",
-          contentType: "application/json",
-          payload: JSON.stringify({ chat_id: baleChatId, text: msg }),
-          muteHttpExceptions: true
-        });
-      } catch(baleErr) {}
-    }
-
-    // ۳. ارسال مستقیم به ربات تلگرام فرزین (فقط در صورتی که توکن تنظیم شده باشد)
-    if (tgToken && tgChatId) {
-      try {
-        var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
-        UrlFetchApp.fetch(tgUrl, {
-          method: "post",
-          contentType: "application/json",
-          payload: JSON.stringify({
-            chat_id: tgChatId,
-            text: msg
-          }),
-          muteHttpExceptions: true
-        });
-      } catch(tgErr) {}
-    }
+    // ۲ و ۳. ارسال به بله و تلگرام — توکن‌ها فقط از Script Properties خوانده می‌شوند (هیچ توکنی در کدِ عمومی نیست)
+    // نتیجه‌ی هر ارسال در Executions لاگ می‌شود تا خطا (مثلاً توکنِ غلط) دیگر بی‌صدا گم نشود
+    // skipBale عمداً نادیده گرفته می‌شود: PHPِ ژنوپارس دیگر بله نمی‌فرستد، پس فقط اینجا فرستاده می‌شود
+    sendToMessenger("bale", msg);
+    sendToMessenger("telegram", msg);
 
     // ۴. ثبت یکپارچه و دائمی در یک فایل واحد گوگل شیت (جلوگیری از ساخت فایل‌های متعدد)
     try {
@@ -177,4 +147,43 @@ function doPost(e) {
 function doGet() {
   return ContentService.createTextOutput(JSON.stringify({ status: "ok", service: "Weather Iran Google Bridge" }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+var MESSENGERS = {
+  telegram: { api: "https://api.telegram.org/bot", token: "TELEGRAM_BOT_TOKEN", chat: "TELEGRAM_CHAT_ID" },
+  bale:     { api: "https://tapi.bale.ai/bot",     token: "BALE_BOT_TOKEN",     chat: "BALE_CHAT_ID" }
+};
+
+/** یک پیام به تلگرام یا بله می‌فرستد و نتیجه را برمی‌گرداند (و لاگ می‌کند) — هرگز خطا پرتاب نمی‌کند */
+function sendToMessenger(name, text) {
+  var m = MESSENGERS[name];
+  var props = PropertiesService.getScriptProperties();
+  var token = (props.getProperty(m.token) || "").trim();
+  var chatId = (props.getProperty(m.chat) || "").trim();
+  if (!token || !chatId) {
+    var miss = name + ": ❌ " + (token ? m.chat : m.token) + " در Script Properties نیست";
+    console.log(miss);
+    return miss;
+  }
+  try {
+    var res = UrlFetchApp.fetch(m.api + token + "/sendMessage", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ chat_id: chatId, text: text }),
+      muteHttpExceptions: true
+    });
+    var out = name + ": HTTP " + res.getResponseCode() + " — " + res.getContentText().slice(0, 200);
+    console.log(out);
+    return out;
+  } catch (err) {
+    var fail = name + ": ❌ " + err;
+    console.log(fail);
+    return fail;
+  }
+}
+
+/** تست دستی: در ادیتور این تابع را انتخاب کن و Run بزن، بعد Execution log را ببین */
+function testSend() {
+  sendToMessenger("telegram", "🧪 تستِ پلِ هوای ایران — تلگرام");
+  sendToMessenger("bale", "🧪 تستِ پلِ هوای ایران — بله");
 }
