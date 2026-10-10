@@ -1,11 +1,6 @@
 /**
  * پل ارتباطی هوای ایران با Google Apps Script
  * این کد را در script.google.com پیست کنید و به عنوان Web App مستقر (Deploy) کنید.
- * 
- * مزیت:
- * ۱. با تمام فیلترشکن‌ها و بدون فیلترشکن با سرعت نور کار می‌کند.
- * ۲. داده‌ها را در یک فایل اکسل گوگل (Google Sheet) ذخیره می‌کند.
- * ۳. همزمان پیام را مستقیم به ربات «بله» فرزین ارسال می‌کند.
  */
 
 function doPost(e) {
@@ -13,31 +8,7 @@ function doPost(e) {
     var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
     var data = JSON.parse(raw);
     
-    // ۱. دسترسی به شیت فعال یا ایجاد صفحه
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      // اگر مستقیماً به شیتی متصل نیست، یک فایل جدید یا شیت پیش‌فرض باز شود
-      ss = SpreadsheetApp.create("هوای ایران - گزارش‌های میدانی");
-    }
-    var sheet = ss.getActiveSheet();
-    
-    // هدر جدول در صورتی که سطر اول خالی باشد
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow([
-        "شناسه",
-        "تاریخ و ساعت ثبت",
-        "موقعیت (شهر / منطقه)",
-        "وضعیت بارش",
-        "وضعیت باد",
-        "مدل‌های دقیق‌تر",
-        "یادداشت کاربر",
-        "داده خام JSON"
-      ]);
-      sheet.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#e2e8f0");
-      sheet.setFrozenRows(1);
-    }
-    
-    // استخراج فیلدها
+    // ۱. استخراج دقیق اطلاعات شهر و منطقه
     var city = (data.city || data.cityName || "تهران").toString().trim();
     var district = (data.district || (data.userVerdict && data.userVerdict.district) || "").toString().trim();
     
@@ -87,24 +58,12 @@ function doPost(e) {
     } else if (rawModels.length > 0) {
       modelsStr = rawModels.map(function(m) { return m.toUpperCase(); }).join("، ") + " ✅";
     }
-    
-    // ذخیره در سطر جدید شیت
-    sheet.appendRow([
-      data.id || ("ID_" + new Date().getTime()),
-      dateTimeStr,
-      locStr,
-      realRain,
-      realWind,
-      modelsStr,
-      notes,
-      raw
-    ]);
-    
-    // ۲. ارسال پیام به ربات بله فرزین
+
+    // ۲. ارسال پیام مستقیم به ربات بله فرزین
     var baleToken = "57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI";
     var baleChatId = "949834279";
     
-    var msg = "🌦 گزارش میدانی جدید هوای ایران (از پل گوگل):\n\n"
+    var msg = "🌦 گزارش میدانی جدید هوای ایران:\n\n"
             + "📍 موقعیت: " + locStr + "\n"
             + "⏰ زمان: " + dateTimeStr + "\n"
             + "🌧 وضعیت بارش: " + realRain + "\n"
@@ -114,7 +73,7 @@ function doPost(e) {
     if (notes) {
       msg += "📝 یادداشت کاربر: " + notes + "\n";
     }
-    msg += "\n📊 ثبت در Google Sheet با موفقیت انجام شد";
+    msg += "\n🌐 ارسال شده از پل ضدتحریم گوگل";
     
     var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
     UrlFetchApp.fetch(baleUrl, {
@@ -126,7 +85,19 @@ function doPost(e) {
       }),
       muteHttpExceptions: true
     });
-    
+
+    // ۳. ثبت اختیاری در شیت
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) {
+        var sheet = ss.getActiveSheet();
+        if (sheet.getLastRow() === 0) {
+          sheet.appendRow(["شناسه", "زمان", "موقعیت", "بارش", "باد", "مدل‌ها", "یادداشت", "خام"]);
+        }
+        sheet.appendRow([data.id || "", dateTimeStr, locStr, realRain, realWind, modelsStr, notes, raw]);
+      }
+    } catch(sheetErr) {}
+
     return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
       .setMimeType(ContentService.MimeType.JSON);
       
@@ -134,4 +105,9 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function doGet() {
+  return ContentService.createTextOutput(JSON.stringify({ status: "ok", service: "Weather Iran Google Bridge" }))
+    .setMimeType(ContentService.MimeType.JSON);
 }

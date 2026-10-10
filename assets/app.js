@@ -851,7 +851,7 @@ function getRealityLogs() {
 }
 
 const FEEDBACK_SERVER_URL = 'https://genopars.ir/wp-content/mu-plugins/weather/weather_feedback.php';
-const GOOGLE_BRIDGE_URL = (typeof window !== 'undefined' && window.GOOGLE_BRIDGE_URL) || '';
+const GOOGLE_BRIDGE_URL = (typeof window !== 'undefined' && window.GOOGLE_BRIDGE_URL) || 'https://script.google.com/macros/s/AKfycbw7i_9QudLTNA7RIOEwg29CDUUUuDwJqKEDyugrUOyEgmDuX4OTS9MLlIZX7WPEsdlB/exec';
 
 async function sendRealityLogToServer(entry) {
   const genoparsUrl = (typeof window !== 'undefined' && window.FEEDBACK_SERVER_URL) || FEEDBACK_SERVER_URL;
