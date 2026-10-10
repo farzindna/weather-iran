@@ -20,7 +20,29 @@ if (!is_dir($storageDir)) {
 }
 $storageFile = $storageDir . '/weather_feedbacks.json';
 
-// ۲. پردازش دریافت لاگ (POST)
+// ۲. عملیات حذف تکی یا پاکسازی کلی لاگ‌ها
+if (isset($_GET['action'])) {
+    if ($_GET['action'] === 'clear_all') {
+        file_put_contents($storageFile, json_encode([], JSON_UNESCAPED_UNICODE), LOCK_EX);
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+        exit;
+    }
+    if ($_GET['action'] === 'delete' && !empty($_GET['id'])) {
+        $delId = $_GET['id'];
+        $feedbacks = [];
+        if (file_exists($storageFile)) {
+            $feedbacks = json_decode(file_get_contents($storageFile), true) ?: [];
+        }
+        $feedbacks = array_values(array_filter($feedbacks, function($item) use ($delId) {
+            return isset($item['id']) && $item['id'] !== $delId;
+        }));
+        file_put_contents($storageFile, json_encode($feedbacks, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+        exit;
+    }
+}
+
+// ۳. پردازش دریافت لاگ (POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Content-Type: application/json; charset=utf-8");
     $rawInput = file_get_contents('php://input');
@@ -303,6 +325,35 @@ $count = count($feedbacks);
       font-weight: 600;
       font-size: 0.85rem;
     }
+    .btn-clear {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      padding: 6px 14px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    .btn-clear:hover {
+      background: #ef4444;
+      color: #fff;
+    }
+    .btn-del-item {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 6px;
+      padding: 3px 8px;
+      text-decoration: none;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+    .btn-del-item:hover {
+      background: #ef4444;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -312,9 +363,12 @@ $count = count($feedbacks);
         <h1>📡 لاگ‌ها و فیدبک‌های دریافتی هواشناسی</h1>
         <div style="color: var(--muted); font-size: 0.85rem; margin-top: 4px;">ذخیره روی سرور داخلی ایران</div>
       </div>
-      <div>
+      <div style="display: flex; align-items: center; gap: 8px;">
         <span class="badge">تعداد کل: <?php echo $count; ?> مشاهده</span>
-        <a href="?format=json" class="btn-json" target="_blank">دریافت خروجی JSON</a>
+        <a href="?format=json" class="btn-json" target="_blank">خروجی JSON</a>
+        <?php if ($count > 0): ?>
+          <a href="?action=clear_all" class="btn-clear" onclick="return confirm('مطمئنی می‌خوای تمام رکوردهای تستی رو پاک کنی؟ این کار قابل بازگشت نیست.')">🗑️ پاکسازی تمام تست‌ها</a>
+        <?php endif; ?>
       </div>
     </header>
 
@@ -335,8 +389,11 @@ $count = count($feedbacks);
               <?php endif; ?>
               <span style="color: var(--muted); font-size: 0.85rem;">(<?php echo htmlspecialchars($fb['jalali'] ?? $fb['date'] ?? ''); ?>)</span>
             </div>
-            <div class="time-badge">
-              ساعت ثبت: <?php echo htmlspecialchars($fb['time'] ?? ''); ?> · سرور: <?php echo htmlspecialchars($fb['received_at'] ?? ''); ?>
+            <div class="time-badge" style="display: flex; align-items: center; gap: 10px;">
+              <span>ساعت ثبت: <?php echo htmlspecialchars($fb['time'] ?? ''); ?> · سرور: <?php echo htmlspecialchars($fb['received_at'] ?? ''); ?></span>
+              <?php if (!empty($fb['id'])): ?>
+                <a href="?action=delete&id=<?php echo urlencode($fb['id']); ?>" class="btn-del-item" onclick="return confirm('این رکورد تستی حذف شود؟')">🗑️ حذف</a>
+              <?php endif; ?>
             </div>
           </div>
 
