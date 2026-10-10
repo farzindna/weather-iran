@@ -1,6 +1,16 @@
 /**
  * پل ارتباطی هوای ایران با Google Apps Script
  * ارسال به تلگرام + ارسال به بله (بدون تکرار) + ثبت در شیت
+ * 
+ * 🔒 راهنمای امنیت:
+ * هیچ توکنی نباید مستقیماً در این کد نوشته شود!
+ * برای تنظیم توکن‌ها، در ادیتور Apps Script به مسیر زیر بروید:
+ * Project Settings (آیکون چرخ‌دنده در منوی چپ) > Script Properties > Add script property
+ * و این ۴ کلید را مقداردهی کنید:
+ * 1. TELEGRAM_BOT_TOKEN
+ * 2. TELEGRAM_CHAT_ID
+ * 3. BALE_BOT_TOKEN
+ * 4. BALE_CHAT_ID
  */
 
 function doPost(e) {
@@ -71,11 +81,16 @@ function doPost(e) {
     }
     msg += "\n🌐 ارسال شده از پل هوشمند هواشناسی";
 
-    // ۲. ارسال پیام به ربات بله (فقط در صورتی که سرور ایران قبلاً نفرستاده باشد)
-    if (!data.skipBale) {
+    // خواندن امن کلیدها و توکن‌ها از Script Properties گوگل (هیچ توکنی نباید در کد عمومی باشد)
+    var scriptProps = PropertiesService.getScriptProperties();
+    var baleToken = scriptProps.getProperty("BALE_BOT_TOKEN");
+    var baleChatId = scriptProps.getProperty("BALE_CHAT_ID");
+    var tgToken = scriptProps.getProperty("TELEGRAM_BOT_TOKEN");
+    var tgChatId = scriptProps.getProperty("TELEGRAM_CHAT_ID");
+
+    // ۲. ارسال پیام به ربات بله (فقط در صورتی که توکن تنظیم شده و سرور ایران قبلاً نفرستاده باشد)
+    if (!data.skipBale && baleToken && baleChatId) {
       try {
-        var baleToken = "57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI";
-        var baleChatId = "949834279";
         var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
         UrlFetchApp.fetch(baleUrl, {
           method: "post",
@@ -86,21 +101,21 @@ function doPost(e) {
       } catch(baleErr) {}
     }
 
-    // ۳. ارسال مستقیم به ربات تلگرام فرزین (همیشه فعال و قطعی)
-    try {
-      var tgToken = "8730697489:AAFmNLgb4lgXU9duDru0rrLPstVGbD9-65U";
-      var tgChatId = "106981593";
-      var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
-      UrlFetchApp.fetch(tgUrl, {
-        method: "post",
-        contentType: "application/json",
-        payload: JSON.stringify({
-          chat_id: tgChatId,
-          text: msg
-        }),
-        muteHttpExceptions: true
-      });
-    } catch(tgErr) {}
+    // ۳. ارسال مستقیم به ربات تلگرام فرزین (فقط در صورتی که توکن تنظیم شده باشد)
+    if (tgToken && tgChatId) {
+      try {
+        var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
+        UrlFetchApp.fetch(tgUrl, {
+          method: "post",
+          contentType: "application/json",
+          payload: JSON.stringify({
+            chat_id: tgChatId,
+            text: msg
+          }),
+          muteHttpExceptions: true
+        });
+      } catch(tgErr) {}
+    }
 
     // ۴. ثبت یکپارچه و دائمی در یک فایل واحد گوگل شیت (جلوگیری از ساخت فایل‌های متعدد)
     try {

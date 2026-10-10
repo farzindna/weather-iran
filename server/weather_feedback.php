@@ -20,11 +20,17 @@ if (!is_dir($storageDir)) {
 }
 $storageFile = $storageDir . '/weather_feedbacks.json';
 
-// ۲. عملیات حذف تکی یا پاکسازی کلی لاگ‌ها
+// ۲. عملیات حذف تکی یا پاکسازی کلی لاگ‌ها (کاملاً محافظت‌شده با کلید امنیتی)
+$adminKey = defined('WEATHER_ADMIN_KEY') ? WEATHER_ADMIN_KEY : (getenv('WEATHER_ADMIN_KEY') ?: 'farzin_weather_admin_9874');
 if (isset($_GET['action'])) {
+    $providedKey = $_GET['key'] ?? '';
+    if ($providedKey !== $adminKey) {
+        http_response_code(403);
+        die("⛔ خطای دسترسی: عملیات مدیریتی نیازمند کلید امنیتی (key) است.");
+    }
     if ($_GET['action'] === 'clear_all') {
         file_put_contents($storageFile, json_encode([], JSON_UNESCAPED_UNICODE), LOCK_EX);
-        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?') . '?key=' . urlencode($adminKey));
         exit;
     }
     if ($_GET['action'] === 'delete' && !empty($_GET['id'])) {
@@ -37,7 +43,7 @@ if (isset($_GET['action'])) {
             return isset($item['id']) && $item['id'] !== $delId;
         }));
         file_put_contents($storageFile, json_encode($feedbacks, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
-        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?') . '?key=' . urlencode($adminKey));
         exit;
     }
 }
@@ -97,8 +103,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
  * ارسال پیام به ربات پیام‌رسان بله
  */
 function sendNotificationToBale($data) {
-    $token = defined('BALE_BOT_TOKEN') ? BALE_BOT_TOKEN : '57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI';
-    $chatId = defined('BALE_CHAT_ID') ? BALE_CHAT_ID : '949834279';
+    // توکن و شناسه کانال باید در کانفیگ سرور (مثلاً wp-config.php) یا متغیر محیطی ست شوند
+    $token = defined('BALE_BOT_TOKEN') ? BALE_BOT_TOKEN : (getenv('BALE_BOT_TOKEN') ?: '');
+    $chatId = defined('BALE_CHAT_ID') ? BALE_CHAT_ID : (getenv('BALE_CHAT_ID') ?: '');
 
     if (empty($token) || empty($chatId)) return;
 
