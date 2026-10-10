@@ -268,6 +268,30 @@ function check(name, cond, detail) {
     check('پنل راستی‌آزمایی شامل انتخابگر ۵ جهت تهران است', s.html.includes('tehran-district-choices') && s.html.includes('data-val="شمال"') && s.html.includes('data-val="غرب"'), '');
   }
 
+  console.log('\n== کلان‌شهرهای ایران (مشهد، اصفهان، شیراز، کرج، تبریز) ==');
+  {
+    await single('طرقبه مشهد', 'طرقبه فردا چطوره', { city: 'طرقبه', n: 1 });
+    await single('کوه صفه اصفهان', 'کوه صفه اصفهان فردا', { city: 'کوه صفه اصفهان', n: 1 });
+    await single('صدرا شیراز', 'صدرا شیراز فردا چطوره', { city: 'شهر جدید صدرا', n: 1 });
+    await single('عظیمیه کرج', 'عظیمیه کرج فردا چطوره', { city: 'عظیمیه کرج', n: 1 });
+    await single('ائل‌گلی تبریز', 'ائل گلی تبریز فردا چطوره', { city: 'ائل‌گلی تبریز', n: 1 });
+
+    const sMashhad = (await single('راستی‌آزمایی مشهد', 'امروز مشهد چطوره', { city: 'مشهد', n: 1 })).s;
+    check('پنل راستی‌آزمایی مشهد شامل چیپ طرقبه است', sMashhad.html.includes('data-val="طرقبه"'), '');
+
+    const sIsfahan = (await single('راستی‌آزمایی اصفهان', 'امروز اصفهان چطوره', { city: 'اصفهان', n: 1 })).s;
+    check('پنل راستی‌آزمایی اصفهان شامل چیپ کوه صفه است', sIsfahan.html.includes('data-val="صفه"'), '');
+
+    const sShiraz = (await single('راستی‌آزمایی شیراز', 'امروز شیراز چطوره', { city: 'شیراز', n: 1 })).s;
+    check('پنل راستی‌آزمایی شیراز شامل چیپ صدرا است', sShiraz.html.includes('data-val="صدرا"'), '');
+
+    const sKaraj = (await single('راستی‌آزمایی کرج', 'امروز کرج چطوره', { city: 'کرج', n: 1 })).s;
+    check('پنل راستی‌آزمایی کرج شامل چیپ عظیمیه است', sKaraj.html.includes('data-val="عظیمیه"'), '');
+
+    const sTabriz = (await single('راستی‌آزمایی تبریز', 'امروز تبریز چطوره', { city: 'تبریز', n: 1 })).s;
+    check('پنل راستی‌آزمایی تبریز شامل چیپ ائل‌گلی است', sTabriz.html.includes('data-val="ائل‌گلی"'), '');
+  }
+
   console.log('\n== بی‌ربط و احوال‌پرسی ==');
   await single('دلار', 'دلار فردا چنده', { kind: 'text', textHas: 'تخصصم' });
   await single('سلام', 'سلام', { kind: 'text', textHas: 'سلام رفیق' });

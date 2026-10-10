@@ -109,11 +109,26 @@ const POPULAR_CITIES = [
   { name: 'جنوب تهران', lat: 35.5900, lon: 51.4200, province: 'تهران', aliases: ['جنوب تهرون', 'شهر ری', 'شهرری', 'نازی آباد'] },
   { name: 'مرکز تهران', lat: 35.6892, lon: 51.3890, province: 'تهران', aliases: ['مرکز تهرون'] },
   { name: 'تهران', lat: 35.6892, lon: 51.3890, province: 'تهران', aliases: ['تهرون', 'کل تهران'] },
-  { name: 'کرج', lat: 35.8327, lon: 50.9915, province: 'البرز' },
-  { name: 'مشهد', lat: 36.2972, lon: 59.6067, province: 'خراسان رضوی' },
-  { name: 'اصفهان', lat: 32.6546, lon: 51.6680, province: 'اصفهان' },
-  { name: 'شیراز', lat: 29.5918, lon: 52.5837, province: 'فارس' },
-  { name: 'تبریز', lat: 38.0800, lon: 46.2919, province: 'آذربایجان شرقی' },
+  { name: 'عظیمیه کرج', lat: 35.8600, lon: 51.0150, province: 'البرز', aliases: ['عظیمیه', 'شمال کرج'] },
+  { name: 'گوهردشت کرج', lat: 35.8650, lon: 50.9700, province: 'البرز', aliases: ['گوهردشت', 'رجایی شهر', 'رجایی‌شهر'] },
+  { name: 'مهرشهر کرج', lat: 35.8050, lon: 50.9100, province: 'البرز', aliases: ['مهرشهر', 'مهر شهر', 'جنوب کرج'] },
+  { name: 'کرج', lat: 35.8327, lon: 50.9915, province: 'البرز', aliases: ['مرکز کرج'] },
+  { name: 'طرقبه', lat: 36.3117, lon: 59.3736, province: 'خراسان رضوی', aliases: ['طرقبه مشهد', 'شاندیز', 'شاندیز مشهد'] },
+  { name: 'وکیل‌آباد مشهد', lat: 36.3450, lon: 59.4850, province: 'خراسان رضوی', aliases: ['وکیل آباد', 'وکیل آباد مشهد', 'پارک ملت مشهد'] },
+  { name: 'قاسم‌آباد مشهد', lat: 36.3650, lon: 59.5100, province: 'خراسان رضوی', aliases: ['قاسم آباد', 'قاسم آباد مشهد', 'غرب مشهد'] },
+  { name: 'مشهد', lat: 36.2972, lon: 59.6067, province: 'خراسان رضوی', aliases: ['حرم', 'حرم امام رضا'] },
+  { name: 'کوه صفه اصفهان', lat: 32.5800, lon: 51.6600, province: 'اصفهان', aliases: ['کوه صفه', 'صفه اصفهان', 'سپاهان شهر', 'سپاهان‌شهر', 'جنوب اصفهان'] },
+  { name: 'ناژوان اصفهان', lat: 32.6450, lon: 51.5900, province: 'اصفهان', aliases: ['ناژوان', 'پارک ناژوان', 'آتشگاه اصفهان', 'آتشگاه', 'غرب اصفهان'] },
+  { name: 'شاهین‌شهر', lat: 32.8600, lon: 51.5600, province: 'اصفهان', aliases: ['شاهین شهر', 'شمال اصفهان'] },
+  { name: 'شرق اصفهان', lat: 32.7500, lon: 51.8600, province: 'اصفهان', aliases: ['فرودگاه اصفهان'] },
+  { name: 'اصفهان', lat: 32.6546, lon: 51.6680, province: 'اصفهان', aliases: ['میدان نقش جهان', 'مرکز اصفهان'] },
+  { name: 'شهر جدید صدرا', lat: 29.8100, lon: 52.3600, province: 'فارس', aliases: ['صدرا', 'صدرا شیراز', 'شمال غرب شیراز'] },
+  { name: 'قصرالدشت شیراز', lat: 29.6500, lon: 52.4850, province: 'فارس', aliases: ['قصرالدشت', 'قصر دشت', 'ارم شیراز', 'باغ ارم'] },
+  { name: 'جنوب شیراز', lat: 29.5400, lon: 52.5900, province: 'فارس', aliases: ['فرودگاه شیراز'] },
+  { name: 'شیراز', lat: 29.5918, lon: 52.5837, province: 'فارس', aliases: ['حافظیه', 'مرکز شیراز'] },
+  { name: 'ائل‌گلی تبریز', lat: 38.0250, lon: 46.3650, province: 'آذربایجان شرقی', aliases: ['ائل گلی', 'ایل گلی', 'ائل‌گلی', 'شاه گلی', 'جنوب شرق تبریز'] },
+  { name: 'غرب تبریز', lat: 38.1250, lon: 46.2350, province: 'آذربایجان شرقی', aliases: ['فرودگاه تبریز'] },
+  { name: 'تبریز', lat: 38.0800, lon: 46.2919, province: 'آذربایجان شرقی', aliases: ['مرکز تبریز', 'بازار تبریز'] },
   { name: 'اهواز', lat: 31.3183, lon: 48.6706, province: 'خوزستان' },
   { name: 'کیش', lat: 26.5578, lon: 53.9799, province: 'هرمزگان' },
   { name: 'قشم', lat: 26.9581, lon: 56.2719, province: 'هرمزگان' },
@@ -936,20 +951,97 @@ function getRainDissent(d) {
   return null;
 }
 
+const METRO_AREAS = {
+  'تهران': {
+    title: 'سمتِ شهر در تهران',
+    keywords: ['تهران', 'تهرون', 'شمیران', 'تجریش', 'ولنجک', 'نیاوران', 'چیتگر', 'صادقیه', 'شهرک غرب', 'تهرانپارس', 'لویزان', 'سرخه حصار', 'شهر ری', 'شهرری', 'نازی آباد'],
+    districts: [
+      { id: 'شمال', label: '🏔️ شمال (تجریش)', fullName: 'شمال تهران', matches: ['شمال تهران', 'شمیران', 'تجریش', 'ولنجک', 'نیاوران'] },
+      { id: 'غرب', label: '🌲 غرب (چیتگر)', fullName: 'غرب تهران', matches: ['غرب تهران', 'چیتگر', 'صادقیه', 'شهرک غرب'] },
+      { id: 'مرکز', label: '🏙️ مرکز', fullName: 'مرکز تهران', matches: ['مرکز تهران'] },
+      { id: 'شرق', label: '🏢 شرق (تهرانپارس)', fullName: 'شرق تهران', matches: ['شرق تهران', 'تهرانپارس', 'لویزان', 'سرخه حصار'] },
+      { id: 'جنوب', label: '🏛️ جنوب (ری)', fullName: 'جنوب تهران', matches: ['جنوب تهران', 'شهر ری', 'شهرری', 'نازی آباد'] },
+    ]
+  },
+  'مشهد': {
+    title: 'منطقه در مشهد',
+    keywords: ['مشهد', 'طرقبه', 'شاندیز', 'وکیل آباد', 'وکیل‌آباد', 'قاسم آباد', 'قاسم‌آباد', 'حرم'],
+    districts: [
+      { id: 'طرقبه', label: '🌲 طرقبه و شاندیز', fullName: 'طرقبه', matches: ['طرقبه', 'شاندیز'] },
+      { id: 'وکیل‌آباد', label: '🎡 وکیل‌آباد', fullName: 'وکیل‌آباد مشهد', matches: ['وکیل آباد', 'وکیل‌آباد'] },
+      { id: 'مرکز', label: '🕌 حرم / مرکز', fullName: 'مشهد', matches: ['حرم'] },
+      { id: 'قاسم‌آباد', label: '🏢 قاسم‌آباد', fullName: 'قاسم‌آباد مشهد', matches: ['قاسم آباد', 'قاسم‌آباد'] },
+    ]
+  },
+  'اصفهان': {
+    title: 'منطقه در اصفهان',
+    keywords: ['اصفهان', 'کوه صفه', 'سپاهان شهر', 'سپاهان‌شهر', 'ناژوان', 'آتشگاه', 'شاهین شهر', 'شاهین‌شهر'],
+    districts: [
+      { id: 'صفه', label: '🏔️ کوه صفه / جنوب', fullName: 'کوه صفه اصفهان', matches: ['کوه صفه', 'صفه اصفهان', 'سپاهان شهر', 'سپاهان‌شهر', 'جنوب اصفهان'] },
+      { id: 'مرکز', label: '🏛️ مرکز / نقش جهان', fullName: 'اصفهان', matches: ['نقش جهان', 'مرکز اصفهان'] },
+      { id: 'ناژوان', label: '🌿 ناژوان / آتشگاه', fullName: 'ناژوان اصفهان', matches: ['ناژوان', 'آتشگاه', 'غرب اصفهان'] },
+      { id: 'شاهین‌شهر', label: '🏭 شاهین‌شهر / شمال', fullName: 'شاهین‌شهر', matches: ['شاهین شهر', 'شاهین‌شهر', 'شمال اصفهان'] },
+      { id: 'شرق', label: '✈️ شرق / فرودگاه', fullName: 'شرق اصفهان', matches: ['شرق اصفهان', 'فرودگاه اصفهان'] },
+    ]
+  },
+  'شیراز': {
+    title: 'منطقه در شیراز',
+    keywords: ['شیراز', 'صدرا', 'قصرالدشت', 'قصر دشت', 'ارم', 'حافظیه'],
+    districts: [
+      { id: 'صدرا', label: '🏔️ صدرا / شمال‌غرب', fullName: 'شهر جدید صدرا', matches: ['صدرا', 'شمال غرب شیراز'] },
+      { id: 'قصرالدشت', label: '🌿 قصرالدشت و ارم', fullName: 'قصرالدشت شیراز', matches: ['قصرالدشت', 'قصر دشت', 'ارم شیراز', 'باغ ارم'] },
+      { id: 'مرکز', label: '🏛️ مرکز / حافظیه', fullName: 'شیراز', matches: ['حافظیه', 'مرکز شیراز'] },
+      { id: 'جنوب', label: '✈️ جنوب / فرودگاه', fullName: 'جنوب شیراز', matches: ['جنوب شیراز', 'فرودگاه شیراز'] },
+    ]
+  },
+  'کرج': {
+    title: 'منطقه در کرج',
+    keywords: ['کرج', 'عظیمیه', 'گوهردشت', 'رجایی شهر', 'رجایی‌شهر', 'مهرشهر', 'مهر شهر'],
+    districts: [
+      { id: 'عظیمیه', label: '🏔️ عظیمیه / شمال', fullName: 'عظیمیه کرج', matches: ['عظیمیه', 'شمال کرج'] },
+      { id: 'گوهردشت', label: '🏙️ گوهردشت', fullName: 'گوهردشت کرج', matches: ['گوهردشت', 'رجایی شهر', 'رجایی‌شهر'] },
+      { id: 'مرکز', label: '🏢 مرکز کرج', fullName: 'کرج', matches: ['مرکز کرج'] },
+      { id: 'مهرشهر', label: '🌿 مهرشهر / جنوب', fullName: 'مهرشهر کرج', matches: ['مهرشهر', 'مهر شهر', 'جنوب کرج'] },
+    ]
+  },
+  'تبریز': {
+    title: 'منطقه در تبریز',
+    keywords: ['تبریز', 'ائل گلی', 'ائل‌گلی', 'ایل گلی', 'شاه گلی'],
+    districts: [
+      { id: 'ائل‌گلی', label: '🌊 ائل‌گلی / جنوب‌شرق', fullName: 'ائل‌گلی تبریز', matches: ['ائل گلی', 'ائل‌گلی', 'ایل گلی', 'شاه گلی', 'جنوب شرق تبریز'] },
+      { id: 'مرکز', label: '🏛️ مرکز / بازار', fullName: 'تبریز', matches: ['مرکز تبریز', 'بازار تبریز'] },
+      { id: 'غرب', label: '✈️ غرب / فرودگاه', fullName: 'غرب تبریز', matches: ['غرب تبریز', 'فرودگاه تبریز'] },
+    ]
+  }
+};
+
+function findMetroConfig(cityName) {
+  if (!cityName) return null;
+  for (const [metroKey, cfg] of Object.entries(METRO_AREAS)) {
+    if (cityName === metroKey || cityName.includes(metroKey)) return { metroKey, ...cfg };
+    if (cfg.keywords.some(kw => cityName.includes(kw))) return { metroKey, ...cfg };
+    if (cfg.districts.some(d => d.fullName === cityName)) return { metroKey, ...cfg };
+  }
+  return null;
+}
+
+function getDetectedDistrict(cityName, metroCfg) {
+  if (!cityName || !metroCfg) return null;
+  if (cityName === metroCfg.metroKey) return null;
+  for (const d of metroCfg.districts) {
+    if (d.fullName === cityName) return d.id;
+    if (d.matches && d.matches.some(m => cityName.includes(m))) return d.id;
+  }
+  return null;
+}
+
 function isTehranArea(cityName) {
-  if (!cityName) return false;
-  return cityName === 'تهران' || cityName.includes('تهران') ||
-    ['شمیران', 'تجریش', 'ولنجک', 'نیاوران', 'چیتگر', 'صادقیه', 'شهرک غرب', 'تهرانپارس', 'لویزان', 'سرخه حصار', 'شهر ری', 'شهرری', 'نازی آباد'].includes(cityName);
+  return findMetroConfig(cityName)?.metroKey === 'تهران';
 }
 
 function getTehranDistrict(cityName) {
-  if (!cityName) return null;
-  if (cityName.includes('شمال') || ['شمیران', 'تجریش', 'ولنجک', 'نیاوران'].includes(cityName)) return 'شمال';
-  if (cityName.includes('غرب') || ['چیتگر', 'صادقیه', 'شهرک غرب'].includes(cityName)) return 'غرب';
-  if (cityName.includes('شرق') || ['تهرانپارس', 'لویزان', 'سرخه حصار'].includes(cityName)) return 'شرق';
-  if (cityName.includes('جنوب') || ['شهر ری', 'شهرری', 'نازی آباد'].includes(cityName)) return 'جنوب';
-  if (cityName.includes('مرکز')) return 'مرکز';
-  return null;
+  const m = findMetroConfig(cityName);
+  return m?.metroKey === 'تهران' ? getDetectedDistrict(cityName, m) : null;
 }
 
 function renderStreamChips(dayLogs) {
@@ -979,25 +1071,18 @@ function renderRealityCard(day, location) {
   const now = new Date();
   const curTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  const isTehran = isTehranArea(location.name);
-  const detectedDistrict = getTehranDistrict(location.name);
+  const metroCfg = findMetroConfig(location.name);
   let districtGroupHtml = '';
-  if (isTehran) {
-    const districts = [
-      { id: 'شمال', label: '🏔️ شمال' },
-      { id: 'غرب', label: '🌲 غرب' },
-      { id: 'مرکز', label: '🏙️ مرکز' },
-      { id: 'شرق', label: '🏢 شرق' },
-      { id: 'جنوب', label: '🏛️ جنوب' },
-    ];
-    const chipsHtml = districts.map(d => {
+  if (metroCfg) {
+    const detectedDistrict = getDetectedDistrict(location.name, metroCfg);
+    const chipsHtml = metroCfg.districts.map(d => {
       const activeClass = detectedDistrict === d.id ? 'active' : '';
       return `<button type="button" class="tag-btn tag-district ${activeClass}" data-type="district" data-val="${d.id}">${d.label}</button>`;
     }).join('');
 
     districtGroupHtml = `
       <div class="feedback-group tehran-district-group">
-        <span class="feedback-label">🧭 سمتِ شهر در تهران (اختیاری):</span>
+        <span class="feedback-label">🧭 ${metroCfg.title} (اختیاری):</span>
         <div class="tag-choices tehran-district-choices">
           ${chipsHtml}
         </div>
@@ -1377,12 +1462,13 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
   `;
 
   let suggestions = rangeChips(opts.chipCity, days[0].date, days[days.length - 1].date);
-  if (isTehranArea(location.name)) {
-    const districts = ['شمال تهران', 'غرب تهران', 'مرکز تهران', 'شرق تهران', 'جنوب تهران'];
-    const otherDistricts = districts.filter(d => d !== location.name);
+  const metroCfg = findMetroConfig(location.name);
+  if (metroCfg) {
+    const otherDistricts = metroCfg.districts
+      .filter(d => d.fullName !== location.name && d.label !== location.name);
     suggestions = [
       ...suggestions,
-      ...otherDistricts.map(d => ({ label: `🧭 ${d}`, query: `امروز ${d}` }))
+      ...otherDistricts.map(d => ({ label: `🧭 ${d.id}`, query: `امروز ${d.fullName}` }))
     ];
   }
 
@@ -1598,7 +1684,9 @@ function appendAssistantMessage(data) {
         : [...card.querySelectorAll('.model-box.is-selected')].map(c => c.dataset.model);
       const activeRain = card.querySelector('.tag-btn[data-type="rain"].active')?.dataset.val || '';
       const activeWind = card.querySelector('.tag-btn[data-type="wind"].active')?.dataset.val || '';
-      const activeDistrict = card.querySelector('.tag-btn[data-type="district"].active')?.dataset.val || getTehranDistrict(city) || '';
+      const metro = findMetroConfig(city);
+      const detectedD = getDetectedDistrict(city, metro);
+      const activeDistrict = card.querySelector('.tag-btn[data-type="district"].active')?.dataset.val || detectedD || '';
       const notes = noteInput ? noteInput.value.trim() : '';
 
       if (activeModels.length === 0 && !activeRain && !activeWind && !notes && !activeDistrict) {
@@ -1681,11 +1769,12 @@ function renderWelcomeMessage() {
         <div class="chips-title">پرسش‌های سریع و آماده (فقط روشون بزن):</div>
         <div class="chips-grid">
           <button class="chip-btn" data-query="امروز شمال تهران چطوره؟">🏔️ شمال تهران (تجریش)</button>
-          <button class="chip-btn" data-query="امروز غرب تهران چطوره؟">🌲 غرب تهران (چیتگر)</button>
-          <button class="chip-btn" data-query="امروز مرکز تهران چطوره؟">🏙️ مرکز تهران</button>
-          <button class="chip-btn" data-query="امروز شرق تهران چطوره؟">🏢 شرق تهران (تهرانپارس)</button>
-          <button class="chip-btn" data-query="امروز جنوب تهران چطوره؟">🏛️ جنوب تهران (ری)</button>
-          <button class="chip-btn" data-query="فردا کل تهران چطوره؟">🏙️ فردا کل تهران</button>
+          <button class="chip-btn" data-query="امروز طرقبه چطوره؟">🌲 طرقبه و شاندیز مشهد</button>
+          <button class="chip-btn" data-query="امروز کوه صفه اصفهان چطوره؟">🏔️ کوه صفه اصفهان</button>
+          <button class="chip-btn" data-query="امروز قصرالدشت شیراز چطوره؟">🌸 قصرالدشت شیراز</button>
+          <button class="chip-btn" data-query="امروز عظیمیه کرج چطوره؟">🏔️ عظیمیه کرج</button>
+          <button class="chip-btn" data-query="امروز ائل گلی تبریز چطوره؟">🌊 ائل‌گلی تبریز</button>
+          <button class="chip-btn" data-query="فردا کل تهران چطوره؟">🏙️ فردا تهران</button>
           <button class="chip-btn" data-query="یه هفته دیگه کوهدشت چطوره؟">🏔️ یه هفته دیگه کوهدشت؟</button>
           <button class="chip-btn" data-query="پس‌فردا چالوس بارون داریم؟">🏖️ پس‌فردا چالوس بارونیه؟</button>
         </div>
@@ -1985,7 +2074,7 @@ function renderModalContent() {
               </div>
             </div>
             <div class="log-entry-tags">
-              ${l.district ? `<span class="log-tag district">🧭 ${escapeHtml(l.district)} تهران</span>` : ''}
+              ${l.district ? `<span class="log-tag district">🧭 ${escapeHtml(l.district)}</span>` : ''}
               ${rainLabel ? `<span class="log-tag">${rainLabel}</span>` : ''}
               ${windLabel ? `<span class="log-tag">${windLabel}</span>` : ''}
             </div>
