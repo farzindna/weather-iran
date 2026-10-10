@@ -994,13 +994,16 @@ function renderRealityCard(day, location) {
     : `برای نوبت ${activeSlotObj.short} هنوز ثبت نشده`;
 
   return `
-    <div class="reality-card" data-date="${day.iso}" data-city="${escapeHtml(location.name)}" data-current-slot="${activeSlot}">
-      <div class="reality-header">
+    <div class="reality-card is-collapsed" data-date="${day.iso}" data-city="${escapeHtml(location.name)}" data-current-slot="${activeSlot}">
+      <div class="reality-header" role="button" tabindex="0" aria-expanded="false" title="برای باز یا بسته کردن کلیک کنید">
         <div class="reality-title-wrap">
           <div class="reality-badge">🎯 راستی‌آزمایی و مقایسه‌ی مدل‌ها ${dayLogs.length > 0 ? `<span>(✅ ${dayLogs.length} نوبت ثبت‌شده)</span>` : ''}</div>
           <div class="reality-subtitle">${day.jalali.full} (امروز) — ${escapeHtml(location.name)} (پیش‌بینیِ هر مدل در نوبت‌های مختلف چقدر درست بود؟)</div>
         </div>
-        <button type="button" class="btn-reality-toggle" title="جمع یا باز کردن">▼</button>
+        <div class="reality-toggle-btn-wrap">
+          <span class="reality-toggle-hint"></span>
+          <button type="button" class="btn-reality-toggle" tabindex="-1" aria-label="باز و بسته کردن">▼</button>
+        </div>
       </div>
       <div class="reality-body">
         <div class="reality-slot-bar">
@@ -1427,8 +1430,18 @@ function appendAssistantMessage(data) {
   // وصل کردن رویدادهای کارت راستی‌آزمایی
   row.querySelectorAll('.reality-card').forEach(card => {
     const header = card.querySelector('.reality-header');
-    header?.addEventListener('click', () => {
-      card.classList.toggle('is-collapsed');
+    const toggleCollapse = () => {
+      const isNowCollapsed = card.classList.toggle('is-collapsed');
+      if (header) {
+        header.setAttribute('aria-expanded', !isNowCollapsed);
+      }
+    };
+    header?.addEventListener('click', toggleCollapse);
+    header?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleCollapse();
+      }
     });
 
     const slotBtns = card.querySelectorAll('.slot-pill-btn');
