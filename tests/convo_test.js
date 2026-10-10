@@ -254,7 +254,7 @@ function check(name, cond, detail) {
     check('پنل راستی‌آزمایی در لود اولیه بسته است (is-collapsed)', s.html.includes('reality-card is-collapsed'), '');
     check('برگه‌های مدل‌ها مستقیماً برای انتخاب طراحی شده‌اند', s.html.includes('model-box') && s.html.includes('model-selection-bar') && s.html.includes('btn-select-none'), '');
     check('دکمه‌های تکراری چیپ از پایین حذف شده‌اند', !s.html.includes('chip-choice'), '');
-    check('انتخاب نوبت‌های روز (صبح/عصر/شب/کل‌روز) در پنل وجود دارد', s.html.includes('reality-slot-bar') && s.html.includes('morning') && s.html.includes('afternoon') && s.html.includes('night'), '');
+    check('جریان ثبت آزاد زمانی و ساعتی (reality-stream-bar) در پنل وجود دارد', s.html.includes('reality-stream-bar') && s.html.includes('stream-chips-wrap'), '');
   }
 
   console.log('\n== بی‌ربط و احوال‌پرسی ==');

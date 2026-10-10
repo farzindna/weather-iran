@@ -882,7 +882,96 @@ body::before {
   gap: 16px;
 }
 
-/* Slot selector bar */
+/* Reality Stream bar */
+.reality-stream-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.stream-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stream-bar-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.stream-bar-counter {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.stream-chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  align-items: center;
+}
+
+.stream-empty-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.stream-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  color: #e2e8f0;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  transition: all 0.2s ease;
+}
+
+.stream-chip:hover {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.stream-chip-time {
+  font-weight: 700;
+  color: #38bdf8;
+  font-family: inherit;
+}
+
+.stream-chip-desc {
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.btn-del-stream-log {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-del-stream-log:hover {
+  color: #ef4444;
+}
+
+/* Legacy slot selector bar compatibility */
 .reality-slot-bar {
   display: flex;
   flex-direction: column;
@@ -1469,6 +1558,28 @@ body::before {
   font-weight: 600;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.log-entry-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-del-modal-log {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  opacity: 0.6;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+  line-height: 1;
+}
+
+.btn-del-modal-log:hover {
+  opacity: 1;
+  transform: scale(1.15);
 }
 
 .log-entry-location {
