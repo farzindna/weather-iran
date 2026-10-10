@@ -58,16 +58,6 @@ function mockFetch(log, opts = {}) {
       }
       return json({ daily, hourly });
     }
-    if (u.host.startsWith('archive')) {
-      const s = new Date(u.searchParams.get('start_date') + 'T00:00:00'), e = new Date(u.searchParams.get('end_date') + 'T00:00:00');
-      const daily = { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [], weather_code: [], wind_speed_10m_max: [], wind_gusts_10m_max: [] };
-      for (let d = new Date(s); d <= e; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
-        daily.time.push(iso(d)); daily.temperature_2m_max.push(15); daily.temperature_2m_min.push(5);
-        daily.precipitation_sum.push(0); daily.weather_code.push(2);
-        daily.wind_speed_10m_max.push(10); daily.wind_gusts_10m_max.push(20);
-      }
-      return json({ daily });
-    }
     throw new Error('unexpected url ' + url);
   };
 }
@@ -169,8 +159,8 @@ function check(name, cond, detail) {
   await single('۱۵ مهر', '۱۵ مهر رشت', { n: 1, first: T(4) });
   await single('پونزدهم مهر', 'پونزدهم مهر رشت', { n: 1, first: T(4) });
   await single('۱۰ تا ۱۳ مهر (گذشته‌ی جزئی)', '۱۰ تا ۱۳ مهر رشت', { first: T(0), last: T(2), textHas: 'روزهای گذشته' });
-  await single('۲۵ مهر تا ۵ آبان (عبور از ۱۶ روز)', '۲۵ مهر تا ۵ آبان رشت', { first: T(14), n: 11, textHas: 'پارسال' });
-  await single('یک ماه آینده (ترکیبی)', 'یک ماه آینده رشت', { n: 30, first: T(0), textHas: 'پارسال' });
+  await single('۲۵ مهر تا ۵ آبان (عبور از ۱۶ روز)', '۲۵ مهر تا ۵ آبان رشت', { first: T(14), last: T(15), n: 2, textHas: '۱۶ روز' });
+  await single('یک ماه آینده (سقف ۱۶ روز)', 'یک ماه آینده رشت', { first: T(0), last: T(15), n: 16, textHas: '۱۶ روز' });
   await single('دیروز (گذشته)', 'دیروز تهران چطور بود', { kind: 'text', textHas: 'گذشته' });
   await single('۵ مهر (گذشته)', '۵ مهر تهران', { kind: 'text', textHas: 'گذشته' });
 
@@ -236,9 +226,9 @@ function check(name, cond, detail) {
   {
     const app = makeApp({ forecastDown: true });
     const s = summarize(await app.ask('فردا رشت'));
-    check('اگر پیش‌بینی قطع بود ← هوای سالِ قبل با برچسبِ صادقانه', s.n === 1 && s.html.includes('هوای سالِ قبل'), s.html.slice(0, 200));
+    check('اگر پیش‌بینی قطع بود ← پیامِ عذرخواهی و عدمِ دسترسی به جای دیتای سالِ قبل', s.kind === 'text' && s.text.includes('نتونستم'), s.text);
     const arch = app.fetchLog.find(u => u.includes('archive'));
-    check('  تاریخِ آرشیو دقیقاً یک سال قبلِ فرداست (نه یک روز عقب)', arch && arch.includes('start_date=2025-10-04'), arch);
+    check('  به آرشیو یا سالِ قبل وصل نمی‌شود (حذفِ کامل)', !arch, arch);
   }
 
   console.log('\n== وضعیت باد و راستی‌آزمایی ==');

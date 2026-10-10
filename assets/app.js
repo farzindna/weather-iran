@@ -741,50 +741,7 @@ async function fetchForecastDays(lat, lon, startIso, endIso) {
       perModel,
       desc: wmo.desc,
       icon: wmo.icon,
-      isEstimate: false,
       rainWindow: hourly ? findRainWindow(hourly, timeIso) : null
-    });
-  }
-  return days;
-}
-
-// فراتر از ۱۶ روز هیچ مدلِ عددیِ قابل‌اتکایی نیست — این پیش‌بینی نیست، فقط هوای
-// واقعیِ سالِ قبل در همان تاریخ‌های تقویمی است، صادقانه با همین برچسب.
-// (تاریخ‌ها با toIsoDate محلی‌اند؛ قبلاً toISOString بود که در ایران یک روز عقب می‌افتاد)
-async function fetchLastYearDays(lat, lon, startDate, endDate) {
-  const shift = (d, by) => new Date(d.getFullYear() + by, d.getMonth(), d.getDate());
-  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
-    `&start_date=${toIsoDate(shift(startDate, -1))}&end_date=${toIsoDate(shift(endDate, -1))}` +
-    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,wind_gusts_10m_max&timezone=auto`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Archive HTTP error ${res.status}`);
-  const data = await res.json();
-  const daily = data.daily;
-  const days = [];
-
-  for (let i = 0; i < daily.time.length; i++) {
-    if (daily.temperature_2m_max[i] == null) continue;
-    // تاریخ واقعی هدف امسال
-    const targetDate = shift(new Date(daily.time[i] + 'T00:00:00'), 1);
-    const wmo = getWmoInfo(daily.weather_code[i] ?? 2);
-    days.push({
-      date: targetDate,
-      iso: toIsoDate(targetDate),
-      jalali: getJalaliDateStr(targetDate),
-      maxTemp: Math.round(daily.temperature_2m_max[i]),
-      minTemp: Math.round(daily.temperature_2m_min[i]),
-      precipSum: Math.round((daily.precipitation_sum[i] || 0) * 10) / 10,
-      // بدون درصدِ ساختگی — یک نمونه‌ی تاریخیِ تک‌ساله عدد احتمال معنادار تولید نمی‌کند
-      modelsAgree: null,
-      modelsTotal: null,
-      models: [],
-      windMax: daily.wind_speed_10m_max?.[i] != null ? Math.round(daily.wind_speed_10m_max[i]) : null,
-      gustMax: daily.wind_gusts_10m_max?.[i] != null ? Math.round(daily.wind_gusts_10m_max[i]) : null,
-      perModel: [],
-      desc: wmo.desc,
-      icon: wmo.icon,
-      isEstimate: true,
-      rainWindow: null // ساعتِ دقیق برای نمونه‌ی تاریخیِ یک‌ساله معنا ندارد
     });
   }
   return days;
@@ -795,54 +752,52 @@ async function fetchLastYearDays(lat, lon, startDate, endDate) {
 function describeSource(days) {
   const groups = [];
   for (const d of days) {
-    const key = d.isEstimate ? 'est' : d.models.join(' · ');
+    const key = d.models.join(' · ');
     const last = groups[groups.length - 1];
     if (last && last.key === key) last.n++;
     else groups.push({ key, n: 1 });
   }
-  const one = g => (g.key === 'est' ? 'هوای واقعیِ سالِ قبل' : g.key.includes('·') ? `میانگین ${g.key}` : `فقط ${g.key}`);
+  const one = g => (g.key.includes('·') ? `میانگین ${g.key}` : `فقط ${g.key}`);
   if (groups.length === 1) {
     const g = groups[0];
-    if (g.key === 'est') return 'هوای واقعیِ سالِ قبل در همین تاریخ‌ها (نه پیش‌بینی مدل)';
     const k = g.key.split(' · ').length;
     return k > 1 ? `میانگین ${k} مدل عددی مستقل (${g.key})` : `فقط مدلِ ${g.key} (بقیه این‌قدر جلو رو ندارن)`;
   }
   return groups.map(g => `${g.n} روز ${one(g)}`).join(' ← ');
 }
 
-// ≤ ۱۶ روز: پیش‌بینیِ چندمدلی؛ بعدش: هوای سالِ قبل. بازه‌ای که از مرزِ ۱۶ روز رد
-// می‌شود هر دو را می‌گیرد — قبلاً کلِ بازه (حتی فردا) هوای پارسال نشان داده می‌شد
+// پیش‌بینیِ چندمدلی تا سقف ۱۶ روز (امروز تا ۱۵ روز بعد).
+// هیچ دیتای فرضی یا سالِ قبل واکشی نمی‌شود؛ اگر بازه از ۱۶ روز رد شود،
+// سقف ۱۶ روز اعمال شده و شفاف به کاربر توضیح داده می‌شود.
 async function fetchWeatherData(lat, lon, startDate, endDate) {
   const today = startOfDay(new Date());
   const lastForecast = addDays(today, FORECAST_DAYS - 1);
   let days = [];
-  let archiveFrom = startDate;
 
-  if (startDate <= lastForecast && endDate >= today) {
+  const isBeyond16Days = startDate > lastForecast;
+  const isCappedAt16Days = endDate > lastForecast;
+
+  // اگر کاربر کلاً تاریخی فراتر از ۱۶ روز خواسته، ۱۶ روز پیش‌رو را برایش می‌آوریم
+  const fStart = isBeyond16Days ? today : (startDate < today ? today : startDate);
+  const fEnd = endDate < lastForecast ? endDate : lastForecast;
+
+  if (fStart <= fEnd) {
     try {
-      const fEnd = endDate < lastForecast ? endDate : lastForecast;
-      days = await fetchForecastDays(lat, lon, toIsoDate(startDate), toIsoDate(fEnd));
-      if (days.length > 0) archiveFrom = addDays(lastForecast, 1);
+      days = await fetchForecastDays(lat, lon, toIsoDate(fStart), toIsoDate(fEnd));
     } catch (e) {
-      // همان رفتارِ قبلی: اگر پیش‌بینی نیامد، هوای سالِ قبل با برچسبِ صادقانه
-      console.warn('Forecast API fetch failed, falling back:', e);
-    }
-  }
-
-  if (endDate >= archiveFrom) {
-    try {
-      days = days.concat(await fetchLastYearDays(lat, lon, archiveFrom, endDate));
-    } catch (err) {
-      console.error('Archive fetch failed:', err);
+      console.warn('Forecast API fetch failed:', e);
+      return null;
     }
   }
 
   if (days.length === 0) return null;
-  const nExact = days.filter(d => !d.isEstimate).length;
+
   return {
-    type: nExact === days.length ? 'exact' : nExact === 0 ? 'historical' : 'mixed',
+    type: 'exact',
     days,
-    source: describeSource(days)
+    source: describeSource(days),
+    isCappedAt16Days: isCappedAt16Days || isBeyond16Days,
+    isBeyond16Days: isBeyond16Days
   };
 }
 
@@ -939,7 +894,7 @@ function describeWind(day) {
 const isWindy = d => (d.gustMax != null && d.gustMax >= 38) || (d.windMax != null && d.windMax >= 25);
 
 function getRainDissent(d) {
-  if (d.isEstimate || !d.perModel || d.modelsTotal < 2) return null;
+  if (!d.perModel || d.modelsTotal < 2) return null;
   const raining = d.perModel.filter(m => m.precip >= 0.5);
   const majority = Math.ceil(d.modelsTotal / 2);
   if (raining.length > 0 && raining.length < majority) {
@@ -1207,17 +1162,13 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
   }
 
   const days = weatherResult.days;
-  const isMixed = weatherResult.type === 'mixed';
-  const isHistorical = weatherResult.type === 'historical';
-  // خلاصه‌ی متنی فقط از روزهای پیش‌بینی‌شده — هوای پارسال قاطیِ عددِ پیش‌بینی نمی‌شود
-  const statDays = isMixed ? days.filter(d => !d.isEstimate) : days;
+  const statDays = days;
 
   // درصد = چند مدل از چندتا موافقند. با یک مدلِ تنها «۱۰۰٪» یعنی فقط «یک مدل گفته»،
   // پس آن‌جا درصد نمی‌دهیم
-  const hasPct = d => !d.isEstimate && d.modelsTotal >= 2;
+  const hasPct = d => d.modelsTotal >= 2;
   const pctOf = d => Math.round((d.modelsAgree / d.modelsTotal) * 100);
-  // «بارونی» یعنی: تو بازه‌ی ۱۶روزه، اکثریتِ مدل‌ها موافقند؛ تو بازه‌ی تاریخی، فقط مقدار واقعی
-  const isRainy = d => (d.isEstimate ? d.precipSum >= 0.5 : d.modelsAgree >= Math.ceil(d.modelsTotal / 2));
+  const isRainy = d => d.modelsAgree >= Math.ceil(d.modelsTotal / 2);
 
   // تحلیل کلی وضعیت — میانگینِ روزها، نه سردترینِ یه روز کنارِ گرم‌ترینِ یه روزِ
   // دیگه (اون‌جوری قبلاً «بین ۱۷ تا ۳۷» درمی‌اومد که هیچ روزی واقعاً این‌قدر
@@ -1269,7 +1220,6 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
 
     let pctPhrase;
     if (hasPct(d)) pctPhrase = `احتمال بارش **${pctOf(d)}٪**`;
-    else if (d.isEstimate) pctPhrase = d.precipSum > 0 ? 'پارسال همین روز بارون اومده' : 'پارسال همین روز بارون نیومده';
     else pctPhrase = `تنها مدلی که این‌قدر جلو رو داره (${d.models[0]}) ${d.modelsAgree ? 'بارون می‌گه' : 'بارون نمی‌گه'}`;
 
     let dissentNote = '';
@@ -1340,23 +1290,21 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
   const focusDay = focusIso && days.length > 1 ? days.find(d => d.iso === focusIso) : null;
   if (focusDay) {
     summaryText += `\n\n📌 خودِ **${focusDay.jalali.weekday} ${focusDay.jalali.short}**: ${focusDay.desc}، **${focusDay.minTemp}° تا ${focusDay.maxTemp}°**` +
-      (hasPct(focusDay) ? `، احتمال بارش **${pctOf(focusDay)}٪**` : focusDay.isEstimate ? ' (هوای پارسالِ همین روز)' : '') + '.';
+      (hasPct(focusDay) ? `، احتمال بارش **${pctOf(focusDay)}٪**` : '') + '.';
   }
 
-  // فراتر از ۱۶ روز: صادقانه بگو این پیش‌بینی نیست، تکرارِ هوای سالِ قبل است
-  if (isMixed) {
-    const firstEst = days.find(d => d.isEstimate);
-    summaryText += `\n\n(💡 از ${firstEst.jalali.short} به بعد بیشتر از ۱۶ روز دیگه‌ست و هیچ مدلی این‌قدر جلو رو پیش‌بینی نمی‌کنه — کارت‌های «پارسال» دقیقاً هوای همون روزها تو سالِ قبله، نه پیش‌بینی. خلاصه‌ی بالا فقط از روزهای پیش‌بینی‌شده‌ست.)`;
-  } else if (isHistorical) {
-    summaryText += `\n\n(💡 راستی این تاریخ بیشتر از ۱۶ روز دیگه‌ست و هیچ مدل هواشناسی این‌قدر جلوتر رو قطعی پیش‌بینی نمی‌کنه. این عددها پیش‌بینی نیستن — دقیقاً همون چیزیه که پارسال تو همین روزها اتفاق افتاده، فقط برای یه حسِ کلی از فصل.)`;
+  // فراتر از ۱۶ روز: صادقانه بگو مدل‌های هواشناسی نهایتاً تا ۱۶ روز پیش‌بینی روزانه دارند
+  if (weatherResult.isBeyond16Days) {
+    summaryText += `\n\n(💡 رفیق این تاریخی که گفتی بیشتر از ۱۶ روز دیگه‌ست و هیچ مدلِ هواشناسی فراتر از ۱۶ روز پیش‌بینی روزانه‌ی مطمئن نداره — ۱۶ روزِ پیشِ رو رو برات آوردم.)`;
+  } else if (weatherResult.isCappedAt16Days) {
+    summaryText += `\n\n(💡 مدل‌های هواشناسی نهایتاً تا ۱۶ روز آینده دقیقه؛ روزهای پیش‌بینی‌پذیر تا ${days[days.length - 1].jalali.short} رو برات آوردم.)`;
   }
 
   if (notes.length > 0) summaryText += `\n\n${notes.join('\n')}`;
 
-  const allThree = statDays.every(d => d.isEstimate || d.modelsTotal >= 3);
-  const [badgeClass, badgeText] = isHistorical ? ['badge-monthly', '📜 هوای سالِ قبل (نه پیش‌بینی)']
-    : isMixed ? ['badge-exact', '⚡ پیش‌بینی + 📜 پارسال']
-    : allThree ? ['badge-exact', '⚡ سه مدل عددی مستقل']
+  const allThree = days.every(d => d.modelsTotal >= 3);
+  const [badgeClass, badgeText] = allThree
+    ? ['badge-exact', '⚡ سه مدل عددی مستقل']
     : ['badge-exact', '⚡ پیش‌بینیِ چندمدلی'];
 
   // ساخت کارت‌های تعاملی روزانه
@@ -1380,9 +1328,7 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
     const offset = daysBetween(today, day.date);
     const isFocus = day === focusDay;
     const pct = hasPct(day) ? pctOf(day) : null;
-    const precipTitle = day.isEstimate
-      ? `هوای واقعیِ سالِ قبل - حجم ${day.precipSum} mm`
-      : `${day.modelsAgree} از ${day.modelsTotal} مدل (${day.models.join('، ')}) بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`;
+    const precipTitle = `${day.modelsAgree} از ${day.modelsTotal} مدل (${day.models.join('، ')}) بارون پیش‌بینی کردند - حجم ${day.precipSum} mm`;
 
     // ساعتِ تقریبیِ شروعِ بارش — فقط وقتی چیزی برای گفتن هست
     const timeLine = day.rainWindow
@@ -1391,30 +1337,19 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
 
     let precipBlock;
     if (pct !== null) {
-      // بازه‌ی ۱۶روزه: همیشه درصد نشون بده، حتی صفر — چون سؤالِ اصلی همینه
+      // بازه‌ی چندمدلی: همیشه درصد نشون بده، حتی صفر — چون سؤالِ اصلی همینه
       precipBlock = `
         <div class="day-card-precip${pct === 0 ? ' is-zero' : ''}" title="${precipTitle}">
           <span>💧</span>
           <span>${pct}٪${day.precipSum > 0 ? ` · ${day.precipSum}mm` : ''}</span>
         </div>${timeLine}`;
-    } else if (!day.isEstimate) {
+    } else {
       // تک‌مدل: درصد معنا ندارد، فقط مقدار و اسمِ همان یک مدل
       precipBlock = `
         <div class="day-card-precip${day.modelsAgree ? '' : ' is-zero'}" title="${precipTitle}">
           <span>💧</span><span>${day.precipSum > 0 ? `${day.precipSum}mm` : '—'}</span>
         </div>${timeLine}
         <span class="day-card-tag" title="بقیه‌ی مدل‌ها این‌قدر جلو رو پیش‌بینی نمی‌کنن">فقط ${day.models[0]}</span>`;
-    } else if (day.precipSum > 0) {
-      // بازه‌ی تاریخی: درصدِ واقعی نداریم، فقط مقدارِ واقعیِ سالِ قبل
-      precipBlock = `
-        <div class="day-card-precip" title="${precipTitle}">
-          <span>💧</span><span>${day.precipSum}mm</span>
-        </div>`;
-    } else {
-      precipBlock = `<span class="day-card-desc">${day.desc.split(' ')[0]}</span>`;
-    }
-    if (day.isEstimate && isMixed) {
-      precipBlock += `<span class="day-card-tag" title="${precipTitle}">پارسال</span>`;
     }
 
     const windSvg = `<svg class="wind-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/></svg>`;
@@ -1429,7 +1364,7 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
         </div>`
       : '';
 
-    const classes = ['day-card', offset === 0 ? 'is-today' : '', isFocus ? 'is-focus' : '', day.isEstimate && isMixed ? 'is-estimate' : '']
+    const classes = ['day-card', offset === 0 ? 'is-today' : '', isFocus ? 'is-focus' : '']
       .filter(Boolean).join(' ');
     cardsHtml += `
       <div class="${classes}">
@@ -1447,8 +1382,8 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
   });
 
   // راستی‌آزمایی فقط برای روزِ جاری (امروز) نمایش داده می‌شود چون آینده هنوز رخ نداده
-  const realityDay = statDays.find(d => daysBetween(today, d.date) === 0);
-  const realityHtml = (!isHistorical && realityDay && realityDay.perModel && realityDay.perModel.length > 0)
+  const realityDay = days.find(d => daysBetween(today, d.date) === 0);
+  const realityHtml = (realityDay && realityDay.perModel && realityDay.perModel.length > 0)
     ? renderRealityCard(realityDay, location)
     : '';
 
@@ -1865,7 +1800,7 @@ async function handleUserSubmit(queryText) {
     // تاریخِ گذشته: صادقانه بگو، نه اینکه بی‌صدا هوای سالِ قبلِ آن روز را نشان بدهی
     if (parsed.range && parsed.range.past) {
       appendAssistantMessage({
-        text: `**${describeRange(parsed.range)}** دیگه گذشته رفیق 🙂 من هوای روزهای پیشِ رو رو می‌گم — تا ۱۶ روز دیگه با مدل‌های هواشناسی، بعدش هم یه حسِ کلی از هوای پارسال.`,
+        text: `**${describeRange(parsed.range)}** دیگه گذشته رفیق 🙂 من هوای روزهای پیشِ رو رو می‌گم — تا ۱۶ روز آینده با مدل‌های معتبر هواشناسی.`,
         cardsHtml: '',
         suggestions: rangeChips(convo.chipCity)
       });
@@ -1929,7 +1864,6 @@ async function handleUserSubmit(queryText) {
       notes.push('📅 تاریخ نگفتی، سه روزِ پیشِ رو رو آوردم — بازه‌ی دیگه خواستی، دکمه‌های پایین رو بزن.');
     }
     if (range.clampedPast) notes.push('📅 روزهای گذشته‌ی این بازه رو کنار گذاشتم و از امروز به بعدش رو آوردم.');
-    if (range.capped) notes.push('📅 بیشتر از یه ماه رو یه‌جا نشون نمی‌دم؛ ۳۱ روزِ اولش رو آوردم.');
 
     // 4. دریافت داده‌های آب‌وهوا از API و نمایش
     const weatherResult = await fetchWeatherData(loc.lat, loc.lon, range.start, range.end);
