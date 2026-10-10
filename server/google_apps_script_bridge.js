@@ -1,6 +1,6 @@
 /**
  * پل ارتباطی هوای ایران با Google Apps Script
- * این کد را در script.google.com پیست کنید و به عنوان Web App مستقر (Deploy) کنید.
+ * ارسال همزمان به بله + تلگرام + ثبت در شیت
  */
 
 function doPost(e) {
@@ -59,10 +59,6 @@ function doPost(e) {
       modelsStr = rawModels.map(function(m) { return m.toUpperCase(); }).join("، ") + " ✅";
     }
 
-    // ۲. ارسال پیام مستقیم به ربات بله فرزین
-    var baleToken = "57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI";
-    var baleChatId = "949834279";
-    
     var msg = "🌦 گزارش میدانی جدید هوای ایران:\n\n"
             + "📍 موقعیت: " + locStr + "\n"
             + "⏰ زمان: " + dateTimeStr + "\n"
@@ -73,20 +69,43 @@ function doPost(e) {
     if (notes) {
       msg += "📝 یادداشت کاربر: " + notes + "\n";
     }
-    msg += "\n🌐 ارسال شده از پل ضدتحریم گوگل";
-    
-    var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
-    UrlFetchApp.fetch(baleUrl, {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify({
-        chat_id: baleChatId,
-        text: msg
-      }),
-      muteHttpExceptions: true
-    });
+    msg += "\n🌐 ارسال شده از پل هوشمند هواشناسی";
 
-    // ۳. ثبت اختیاری در شیت
+    // ۲. ارسال پیام مستقیم به ربات بله فرزین
+    try {
+      var baleToken = "57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI";
+      var baleChatId = "949834279";
+      var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
+      UrlFetchApp.fetch(baleUrl, {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          chat_id: baleChatId,
+          text: msg
+        }),
+        muteHttpExceptions: true
+      });
+    } catch(baleErr) {}
+
+    // ۳. ارسال مستقیم به ربات تلگرام فرزین
+    try {
+      var tgToken = "8730697489:AAFmNLgb4lgXU9duDru0rrLPstVGbD9-65U";
+      var tgChatId = PropertiesService.getScriptProperties().getProperty("TG_CHAT_ID") || "949834279";
+      if (tgToken && tgChatId) {
+        var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
+        UrlFetchApp.fetch(tgUrl, {
+          method: "post",
+          contentType: "application/json",
+          payload: JSON.stringify({
+            chat_id: tgChatId,
+            text: msg
+          }),
+          muteHttpExceptions: true
+        });
+      }
+    } catch(tgErr) {}
+
+    // ۴. ثبت اختیاری در شیت
     try {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       if (ss) {
