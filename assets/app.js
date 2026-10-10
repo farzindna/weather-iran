@@ -938,7 +938,7 @@ function renderStreamChips(dayLogs) {
   return dayLogs.map(l => {
     const winners = (l.userVerdict?.accurateModels || []).filter(m => m !== 'none');
     const winnerText = winners.length > 0 ? winners.join('، ') : (l.userVerdict?.accurateModels?.includes('none') ? 'هیچ‌کدام' : '—');
-    const rainIcon = { dry: '☀️', light: '🌦️', heavy: '🌧️' }[l.userVerdict?.realRain] || '';
+    const rainIcon = { dry: '🌂', light: '🌦️', heavy: '🌧️' }[l.userVerdict?.realRain] || '';
     const windIcon = { calm: '🍃', moderate: '💨', storm: '🌪️' }[l.userVerdict?.realWind] || '';
     return `
       <div class="stream-chip" data-id="${l.id}">
@@ -984,7 +984,7 @@ function renderRealityCard(day, location) {
   }).join('');
 
   const rainTags = [
-    { val: 'dry', label: '☀️ نبارید' },
+    { val: 'dry', label: '🌂 نبارید' },
     { val: 'light', label: '🌦️ رگبار / نم‌نم' },
     { val: 'heavy', label: '🌧️ باران مداوم' }
   ].map(t => `<button type="button" class="tag-btn" data-type="rain" data-val="${t.val}">${t.label}</button>`).join('');
@@ -1902,7 +1902,7 @@ function renderModalContent() {
       modalLogList.innerHTML = logs.map(l => {
         const winners = (l.userVerdict?.accurateModels || []).filter(m => m !== 'none');
         const winnerText = winners.length > 0 ? `🏆 دقیق‌ترین: ${winners.join('، ')}` : (l.userVerdict?.accurateModels?.includes('none') ? '❌ هیچ‌کدام' : 'نامشخص');
-        const rainLabel = { dry: '☀️ بدون باران', light: '🌦️ رگبار/نم‌نم', heavy: '🌧️ باران مداوم' }[l.userVerdict?.realRain] || '';
+        const rainLabel = { dry: '🌂 بدون باران', light: '🌦️ رگبار/نم‌نم', heavy: '🌧️ باران مداوم' }[l.userVerdict?.realRain] || '';
         const windLabel = { calm: '🍃 باد آرام', moderate: '💨 باد متوسط', storm: '🌪️ تندباد شدید' }[l.userVerdict?.realWind] || '';
         const noteHtml = l.userVerdict?.notes ? `<div class="log-entry-note">${escapeHtml(l.userVerdict.notes)}</div>` : '';
         const timeBadge = l.timeStr ? `⏰ ساعت ${l.timeStr}` : (l.slotLabel || '—');
