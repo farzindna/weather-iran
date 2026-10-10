@@ -1654,6 +1654,8 @@ function appendAssistantMessage(data) {
         id: `${dateIso}_${city}_${Date.now()}`,
         dateIso,
         city,
+        cityName: city,
+        jalali: targetDay?.jalali?.full || '',
         district: activeDistrict || null,
         timestamp: Date.now(),
         timeStr,

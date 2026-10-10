@@ -80,30 +80,86 @@ function sendNotificationToBale($data) {
 
     if (empty($token) || empty($chatId)) return;
 
-    $city = $data['cityName'] ?? 'نامشخص';
-    $district = $data['userVerdict']['district'] ?? null;
-    $locationStr = $district ? "{$city} ({$district})" : $city;
+    // ۱. استخراج دقیق نام شهر و منطقه
+    $city = !empty($data['city']) ? trim($data['city']) : (!empty($data['cityName']) ? trim($data['cityName']) : 'تهران');
+    $district = !empty($data['district']) ? trim($data['district']) : (!empty($data['userVerdict']['district']) ? trim($data['userVerdict']['district']) : '');
+
+    // جدول عنوان‌های دقیق جهت‌ها و مناطق
+    $districtMap = [
+        'شمال' => 'شمال (تجریش و نیاوران)',
+        'شرق' => 'شرق (تهرانپارس و لویزان)',
+        'غرب' => 'غرب (چیتگر و صادقیه)',
+        'مرکز' => 'مرکز',
+        'جنوب' => 'جنوب (شهر ری و نازی‌آباد)',
+        'طرقبه' => 'طرقبه و شاندیز',
+        'وکیل‌آباد' => 'وکیل‌آباد',
+        'صفه' => 'کوه صفه',
+        'صدرا' => 'شهر جدید صدرا',
+        'عظیمیه' => 'عظیمیه',
+        'ائل‌گلی' => 'ائل‌گلی'
+    ];
+
+    $districtLabel = isset($districtMap[$district]) ? $districtMap[$district] : $district;
+
+    // موقعیت دقیق و خوانا
+    if (!empty($districtLabel)) {
+        if (strpos($city, $district) !== false) {
+            $locationStr = $city . (isset($districtMap[$district]) ? " ({$districtMap[$district]})" : "");
+        } else {
+            $locationStr = "{$city} — {$districtLabel}";
+        }
+    } else {
+        $locationStr = $city;
+    }
+
+    // ۲. تاریخ و ساعت
+    $time = !empty($data['timeStr']) ? $data['timeStr'] : (!empty($data['time']) ? $data['time'] : date('H:i'));
+    $date = !empty($data['jalali']) ? $data['jalali'] : (!empty($data['dateIso']) ? $data['dateIso'] : (!empty($data['date']) ? $data['date'] : date('Y-m-d')));
+
+    // ۳. وضعیت بارش
+    $rawRain = !empty($data['userVerdict']['realRain']) ? $data['userVerdict']['realRain'] : '';
+    $rainMap = [
+        'dry' => '🌂 نبارید (خشک)',
+        'light' => '🌦️ رگبار / نم‌نم باران',
+        'heavy' => '🌧️ باران مداوم و شدید'
+    ];
+    $realRain = isset($rainMap[$rawRain]) ? $rainMap[$rawRain] : (!empty($rawRain) ? $rawRain : 'ثبت نشده');
+
+    // ۴. وضعیت باد
+    $rawWind = !empty($data['userVerdict']['realWind']) ? $data['userVerdict']['realWind'] : '';
+    $windMap = [
+        'calm' => '🍃 باد آرام',
+        'moderate' => '💨 باد متوسط',
+        'storm' => '🌪️ تندباد شدید'
+    ];
+    $realWind = isset($windMap[$rawWind]) ? $windMap[$rawWind] : (!empty($rawWind) ? $rawWind : 'ثبت نشده');
+
+    // ۵. یادداشت کاربر
+    $notes = !empty($data['userVerdict']['notes']) ? trim($data['userVerdict']['notes']) : '';
+
+    // ۶. مدل‌های دقیق
+    $rawModels = !empty($data['userVerdict']['accurateModels']) && is_array($data['userVerdict']['accurateModels'])
+        ? $data['userVerdict']['accurateModels']
+        : [];
     
-    $date = $data['date'] ?? date('Y-m-d');
-    $time = $data['time'] ?? date('H:i');
-    
-    $realRain = $data['userVerdict']['realRain'] ?? 'ثبت نشده';
-    $realWind = $data['userVerdict']['realWind'] ?? 'ثبت نشده';
-    $notes = !empty($data['userVerdict']['notes']) ? $data['userVerdict']['notes'] : '';
-    
-    $models = !empty($data['userVerdict']['accurateModels']) && is_array($data['userVerdict']['accurateModels'])
-        ? implode('، ', $data['userVerdict']['accurateModels']) 
-        : 'انتخاب نشده';
+    if (in_array('none', $rawModels)) {
+        $modelsStr = '❌ هیچ‌کدام از مدل‌ها درست نگفتند';
+    } elseif (!empty($rawModels)) {
+        $upperModels = array_map(function($m) { return strtoupper($m); }, $rawModels);
+        $modelsStr = implode('، ', $upperModels) . ' ✅';
+    } else {
+        $modelsStr = 'انتخاب نشده';
+    }
 
     $text = "🌦 گزارش میدانی جدید هوای ایران:\n\n"
           . "📍 موقعیت: " . $locationStr . "\n"
-          . "⏰ زمان: " . $date . " ساعت " . $time . "\n"
+          . "⏰ زمان: " . $date . " (ساعت " . $time . ")\n"
           . "🌧 وضعیت بارش: " . $realRain . "\n"
           . "💨 وضعیت باد: " . $realWind . "\n"
-          . "🎯 مدل‌های دقیق‌تر: " . $models . "\n";
+          . "🎯 مدل‌های دقیق‌تر: " . $modelsStr . "\n";
 
     if (!empty($notes)) {
-        $text .= "📝 یادداشت: " . $notes . "\n";
+        $text .= "📝 یادداشت کاربر: " . $notes . "\n";
     }
 
     $text .= "\n🌐 مشاهده کامل در پنل ژنوپارس:\nhttps://genopars.ir/wp-content/mu-plugins/weather/weather_feedback.php";
