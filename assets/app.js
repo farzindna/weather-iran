@@ -857,12 +857,14 @@ async function sendRealityLogToServer(entry) {
   const genoparsUrl = (typeof window !== 'undefined' && window.FEEDBACK_SERVER_URL) || FEEDBACK_SERVER_URL;
   const googleUrl = (typeof window !== 'undefined' && window.GOOGLE_BRIDGE_URL) || GOOGLE_BRIDGE_URL;
 
-  // ۱. ارسال به سرور ژنوپارس با تایم‌اوت ۴ ثانیه‌ای (برای هندل کردن اتصال با فیلترشکن)
+  let genoparsSuccess = false;
+
+  // ۱. ارسال به سرور ژنوپارس با تایم‌اوت هوشمند ۳.۵ ثانیه‌ای
   if (genoparsUrl) {
     try {
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), 4000) : null;
-      await fetch(genoparsUrl, {
+      const timer = controller ? setTimeout(() => controller.abort(), 3500) : null;
+      const res = await fetch(genoparsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry),
@@ -870,18 +872,19 @@ async function sendRealityLogToServer(entry) {
         signal: controller ? controller.signal : undefined
       });
       if (timer) clearTimeout(timer);
+      if (res && res.ok) genoparsSuccess = true;
     } catch (e) {
       // سرور ژنوپارس به دلیل فیلترشکن کاربر تایم‌اوت خورد
     }
   }
 
-  // ۲. ارسال به پل ابری گوگل (ضدتحریم و پایدار با وی‌پی‌ان + ثبت در شیت و ارسال به بله)
+  // ۲. ارسال به پل ابری گوگل (تلگرام همیشگی + بله در صورت در دسترس نبودن سرور ایران)
   if (googleUrl) {
     try {
       await fetch(googleUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(entry),
+        body: JSON.stringify({ ...entry, skipBale: genoparsSuccess }),
         mode: 'no-cors'
       });
     } catch (e) {

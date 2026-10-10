@@ -1,6 +1,6 @@
 /**
  * پل ارتباطی هوای ایران با Google Apps Script
- * ارسال همزمان به بله + تلگرام + ثبت در شیت
+ * ارسال به تلگرام + ارسال به بله (بدون تکرار) + ثبت در شیت
  */
 
 function doPost(e) {
@@ -71,23 +71,22 @@ function doPost(e) {
     }
     msg += "\n🌐 ارسال شده از پل هوشمند هواشناسی";
 
-    // ۲. ارسال پیام مستقیم به ربات بله فرزین
-    try {
-      var baleToken = "57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI";
-      var baleChatId = "949834279";
-      var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
-      UrlFetchApp.fetch(baleUrl, {
-        method: "post",
-        contentType: "application/json",
-        payload: JSON.stringify({
-          chat_id: baleChatId,
-          text: msg
-        }),
-        muteHttpExceptions: true
-      });
-    } catch(baleErr) {}
+    // ۲. ارسال پیام به ربات بله (فقط در صورتی که سرور ایران قبلاً نفرستاده باشد)
+    if (!data.skipBale) {
+      try {
+        var baleToken = "57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI";
+        var baleChatId = "949834279";
+        var baleUrl = "https://tapi.bale.ai/bot" + baleToken + "/sendMessage";
+        UrlFetchApp.fetch(baleUrl, {
+          method: "post",
+          contentType: "application/json",
+          payload: JSON.stringify({ chat_id: baleChatId, text: msg }),
+          muteHttpExceptions: true
+        });
+      } catch(baleErr) {}
+    }
 
-    // ۳. ارسال مستقیم به ربات تلگرام فرزین
+    // ۳. ارسال مستقیم به ربات تلگرام فرزین (همیشه فعال و قطعی)
     try {
       var tgToken = "8730697489:AAFmNLgb4lgXU9duDru0rrLPstVGbD9-65U";
       var tgChatId = "106981593";
