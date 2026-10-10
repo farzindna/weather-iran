@@ -1427,6 +1427,12 @@ function renderRealityCard(day, location) {
     : `وضعیتِ همین ساعت رو ثبت کن تا دقت مدل‌ها سنجیده بشه`;
 
   return `
+    <div class="reality-motivate-banner" role="button" tabindex="0" title="برای ثبت هوای واقعی و باز کردن پنل کلیک کن">
+      <div class="motivate-banner-text">
+        📢 <strong>رفیق اگه الان تو ${escapeHtml(location.name)} هستی:</strong> وضعیت واقعی هوا رو برامون ثبت کن! این فیدبک‌ها کمک می‌کنن هوش پیش‌بینی برای خودت و بقیه بچه‌های این منطقه دقیق‌تر بشه. 🌧️💨
+      </div>
+      <span class="motivate-banner-cta">ثبت هوای واقعی 👇</span>
+    </div>
     <div class="reality-card is-collapsed" data-date="${day.iso}" data-city="${escapeHtml(location.name)}">
       <div class="reality-header" role="button" tabindex="0" aria-expanded="false" title="برای باز یا بسته کردن کلیک کنید">
         <div class="reality-title-wrap">
@@ -1439,9 +1445,6 @@ function renderRealityCard(day, location) {
         </div>
       </div>
       <div class="reality-body" style="display: none;">
-        <div class="reality-motivate-banner">
-          📢 <strong>رفیق اگه الان تو ${escapeHtml(location.name)} هستی:</strong> وضعیت واقعی هوا رو برامون ثبت کن! این فیدبک‌ها کمک می‌کنن هوش پیش‌بینی برای خودت و بقیه بچه‌های این منطقه دقیق‌تر بشه. 🌧️💨
-        </div>
         <div class="reality-stream-bar reality-slot-bar">
           <div class="stream-bar-header slot-bar-header">
             <span class="stream-bar-title slot-bar-title">🕒 مشاهداتِ ثبت‌شده‌ی امروز (جریان زمانی):</span>
@@ -1875,6 +1878,25 @@ function appendAssistantMessage(data) {
         toggleCollapse();
       }
     });
+
+    // اتصال بنر انگیزشی به باز کردن کارت راستی‌آزمایی
+    const prevEl = card.previousElementSibling;
+    const motivateBanner = prevEl?.classList.contains('reality-motivate-banner') ? prevEl : null;
+    if (motivateBanner) {
+      const openCard = () => {
+        if (card.classList.contains('is-collapsed')) {
+          toggleCollapse();
+        }
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      };
+      motivateBanner.addEventListener('click', openCard);
+      motivateBanner.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openCard();
+        }
+      });
+    }
 
     const modelBoxes = card.querySelectorAll('.model-box');
     const noneBtn = card.querySelector('.btn-select-none');

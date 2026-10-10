@@ -963,13 +963,58 @@ body::before {
 }
 
 .reality-motivate-banner {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(16, 185, 129, 0.12));
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(16, 185, 129, 0.15));
+  border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  font-size: 0.85rem;
+  padding: 12px 14px;
+  font-size: 0.88rem;
   line-height: 1.6;
-  color: #e2e8f0;
+  color: #f1f5f9;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-top: 14px;
+  margin-bottom: 8px;
+}
+
+.reality-motivate-banner:hover {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(16, 185, 129, 0.22));
+  border-color: rgba(56, 189, 248, 0.55);
+  transform: translateY(-1px);
+}
+
+.motivate-banner-text {
+  flex: 1;
+}
+
+.motivate-banner-cta {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  background: rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.reality-motivate-banner:hover .motivate-banner-cta {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+@media (max-width: 600px) {
+  .reality-motivate-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
 }
 
 /* Reality Stream bar */
