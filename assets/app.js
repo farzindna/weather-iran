@@ -1090,7 +1090,7 @@ function renderRealityCard(day, location) {
   }).join('');
 
   const rainTags = [
-    { val: 'dry', label: '🌂 نبارید' },
+    { val: 'dry', label: '🌂 نمی‌باره' },
     { val: 'light', label: '🌦️ رگبار / نم‌نم' },
     { val: 'heavy', label: '🌧️ باران مداوم' }
   ].map(t => `<button type="button" class="tag-btn" data-type="rain" data-val="${t.val}">${t.label}</button>`).join('');

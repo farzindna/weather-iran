@@ -119,7 +119,7 @@ function sendNotificationToBale($data) {
     // ۳. وضعیت بارش
     $rawRain = !empty($data['userVerdict']['realRain']) ? $data['userVerdict']['realRain'] : '';
     $rainMap = [
-        'dry' => '🌂 نبارید (خشک)',
+        'dry' => '🌂 نمی‌باره (خشک)',
         'light' => '🌦️ رگبار / نم‌نم باران',
         'heavy' => '🌧️ باران مداوم و شدید'
     ];
