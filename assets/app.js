@@ -1732,6 +1732,90 @@ function renderAssistantText(str) {
 }
 
 // رندر پیام آغازین (Welcome message)
+const WELCOME_CITIES = [
+  {
+    name: 'تهران',
+    icon: '🏙️',
+    label: 'تهران',
+    districts: [
+      { label: '🏢 شرق تهران (تهرانپارس)', query: 'امروز شرق تهران چطوره؟' },
+      { label: '🏔️ شمال تهران (تجریش)', query: 'امروز شمال تهران چطوره؟' },
+      { label: '🌲 غرب تهران (چیتگر)', query: 'امروز غرب تهران چطوره؟' },
+      { label: '🏙️ مرکز تهران', query: 'امروز مرکز تهران چطوره؟' },
+      { label: '🏛️ جنوب تهران (شهر ری)', query: 'امروز جنوب تهران چطوره؟' },
+      { label: '🌐 فردا کل تهران', query: 'فردا کل تهران چطوره؟' }
+    ]
+  },
+  {
+    name: 'مشهد',
+    icon: '🌲',
+    label: 'مشهد',
+    districts: [
+      { label: '🌲 طرقبه و شاندیز', query: 'امروز طرقبه چطوره؟' },
+      { label: '🎡 وکیل‌آباد', query: 'امروز وکیل‌آباد مشهد چطوره؟' },
+      { label: '🕌 مرکز / حرم', query: 'امروز مشهد چطوره؟' },
+      { label: '🏢 قاسم‌آباد', query: 'امروز قاسم‌آباد مشهد چطوره؟' },
+      { label: '🌐 فردا کل مشهد', query: 'فردا مشهد چطوره؟' }
+    ]
+  },
+  {
+    name: 'اصفهان',
+    icon: '🏛️',
+    label: 'اصفهان',
+    districts: [
+      { label: '🏔️ کوه صفه اصفهان', query: 'امروز کوه صفه اصفهان چطوره؟' },
+      { label: '🌿 ناژوان و آتشگاه', query: 'امروز ناژوان اصفهان چطوره؟' },
+      { label: '🏛️ مرکز / نقش جهان', query: 'امروز اصفهان چطوره؟' },
+      { label: '🏭 شاهین‌شهر', query: 'امروز شاهین‌شهر چطوره؟' },
+      { label: '🌐 فردا کل اصفهان', query: 'فردا کل اصفهان چطوره؟' }
+    ]
+  },
+  {
+    name: 'شیراز',
+    icon: '🌸',
+    label: 'شیراز',
+    districts: [
+      { label: '🌸 قصرالدشت شیراز', query: 'امروز قصرالدشت شیراز چطوره؟' },
+      { label: '🏡 شهر جدید صدرا', query: 'امروز شهر جدید صدرا چطوره؟' },
+      { label: '🏛️ مرکز / حافظیه', query: 'امروز شیراز چطوره؟' },
+      { label: '🌐 فردا کل شیراز', query: 'فردا شیراز چطوره؟' }
+    ]
+  },
+  {
+    name: 'کرج',
+    icon: '🏔️',
+    label: 'کرج',
+    districts: [
+      { label: '🏔️ عظیمیه کرج', query: 'امروز عظیمیه کرج چطوره؟' },
+      { label: '🌸 مهرشهر کرج', query: 'امروز مهرشهر کرج چطوره؟' },
+      { label: '🏢 گوهردشت', query: 'امروز گوهردشت کرج چطوره؟' },
+      { label: '🌐 فردا کل کرج', query: 'فردا کل کرج چطوره؟' }
+    ]
+  },
+  {
+    name: 'تبریز',
+    icon: '🌊',
+    label: 'تبریز',
+    districts: [
+      { label: '🌊 ائل‌گلی تبریز', query: 'امروز ائل گلی تبریز چطوره؟' },
+      { label: '🏢 ولیعصر تبریز', query: 'امروز ولیعصر تبریز چطوره؟' },
+      { label: '🏛️ مرکز / بازار', query: 'امروز تبریز چطوره؟' },
+      { label: '🌐 فردا کل تبریز', query: 'فردا تبریز چطوره؟' }
+    ]
+  },
+  {
+    name: 'سایر',
+    icon: '🏖️',
+    label: 'شهرهای مسافرتی',
+    districts: [
+      { label: '🏖️ پس‌فردا چالوس بارونیه؟', query: 'پس‌فردا چالوس بارون داریم؟' },
+      { label: '🏖️ رشت آخر هفته', query: 'آخر هفته رشت چطوره؟' },
+      { label: '🏝️ کیش فردا', query: 'فردا کیش چطوره؟' },
+      { label: '🏔️ یه هفته دیگه کوهدشت؟', query: 'یه هفته دیگه کوهدشت چطوره؟' }
+    ]
+  }
+];
+
 function renderWelcomeMessage() {
   messagesContainer.innerHTML = '';
   const row = document.createElement('div');
@@ -1744,28 +1828,61 @@ function renderWelcomeMessage() {
         <div class="welcome-desc">
           دیگه لازم نیست با نقشه‌های شلوغ و لایه‌های گنگ سر و کله بزنی! هر شهری رو با هر تاریخی که می‌خوای بهم بگو؛ از فردا تا ماه آینده، خودم می‌پرم از ماهواره‌ها چک می‌کنم و بهت می‌گم بارون میاد، چتر لازمه یا هوا سرده.
         </div>
-        <div class="chips-title">پرسش‌های سریع و آماده (فقط روشون بزن):</div>
-        <div class="chips-grid">
-          <button class="chip-btn" data-query="امروز شرق تهران چطوره؟">🏢 شرق تهران (تهرانپارس)</button>
-          <button class="chip-btn" data-query="امروز شمال تهران چطوره؟">🏔️ شمال تهران (تجریش)</button>
-          <button class="chip-btn" data-query="امروز طرقبه چطوره؟">🌲 طرقبه و شاندیز مشهد</button>
-          <button class="chip-btn" data-query="امروز کوه صفه اصفهان چطوره؟">🏔️ کوه صفه اصفهان</button>
-          <button class="chip-btn" data-query="امروز قصرالدشت شیراز چطوره؟">🌸 قصرالدشت شیراز</button>
-          <button class="chip-btn" data-query="امروز عظیمیه کرج چطوره؟">🏔️ عظیمیه کرج</button>
-          <button class="chip-btn" data-query="امروز ائل گلی تبریز چطوره؟">🌊 ائل‌گلی تبریز</button>
-          <button class="chip-btn" data-query="فردا کل تهران چطوره؟">🏙️ فردا تهران</button>
-          <button class="chip-btn" data-query="یه هفته دیگه کوهدشت چطوره؟">🏔️ یه هفته دیگه کوهدشت؟</button>
-          <button class="chip-btn" data-query="پس‌فردا چالوس بارون داریم؟">🏖️ پس‌فردا چالوس بارونیه؟</button>
+        <div class="chips-title">پرسش‌های سریع و آماده (شهر یا منطقه رو انتخاب کن):</div>
+        <div class="city-tabs-grid">
+          ${WELCOME_CITIES.map((c, idx) => `
+            <button class="city-tab-btn ${idx === 0 ? 'is-active' : ''}" data-city-name="${c.name}">
+              ${c.icon} ${c.label} ▾
+            </button>
+          `).join('')}
+        </div>
+        <div class="sub-districts-box">
+          <div class="sub-districts-header">
+            <span>📍 سمت یا منطقه مد نظرت رو بزن:</span>
+          </div>
+          <div class="sub-chips-grid"></div>
         </div>
       </div>
     </div>
   `;
   messagesContainer.appendChild(row);
 
-  row.querySelectorAll('.chip-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const q = btn.getAttribute('data-query');
-      if (q) handleUserSubmit(q);
+  const subGrid = (row.querySelectorAll && row.querySelectorAll('.sub-chips-grid')[0]) || null;
+  const headerSpan = (row.querySelectorAll && row.querySelectorAll('.sub-districts-header span')[0]) || null;
+
+  function renderDistricts(cityName) {
+    const cityObj = WELCOME_CITIES.find(c => c.name === cityName) || WELCOME_CITIES[0];
+    if (headerSpan) {
+      headerSpan.textContent = cityName === 'سایر' 
+        ? '🏖️ شهرهای مسافرتی و پرطرفدار:' 
+        : `📍 سمت یا منطقه در ${cityObj.name} (یا کل شهر):`;
+    }
+    
+    if (subGrid) {
+      subGrid.innerHTML = cityObj.districts.map(d => `
+        <button class="chip-btn chip-sub" data-query="${d.query}">${d.label}</button>
+      `).join('');
+
+      if (subGrid.querySelectorAll) {
+        subGrid.querySelectorAll('.chip-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const q = btn.getAttribute('data-query');
+            if (q) handleUserSubmit(q);
+          });
+        });
+      }
+    }
+  }
+
+  // نمایش اولیه تهران (اولویت اول با شرق تهران)
+  renderDistricts('تهران');
+
+  row.querySelectorAll('.city-tab-btn').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+      row.querySelectorAll('.city-tab-btn').forEach(b => b.classList.remove('is-active'));
+      tabBtn.classList.add('is-active');
+      const cityName = tabBtn.getAttribute('data-city-name');
+      renderDistricts(cityName);
     });
   });
 }

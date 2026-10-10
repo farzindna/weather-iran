@@ -321,6 +321,85 @@ body::before {
   transform: translateY(-1px);
 }
 
+/* Sub Districts in Welcome Card */
+.city-tabs-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.city-tab-btn {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.city-tab-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.city-tab-btn.is-active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--primary);
+  color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.sub-districts-box {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px dashed rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 6px;
+  animation: fadeInSub 0.22s ease-out;
+}
+
+@keyframes fadeInSub {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sub-districts-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sub-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip-sub {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12.5px;
+  padding: 6px 12px;
+}
+
+.chip-sub:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--primary);
+}
+
 /* Weather Response Cards */
 .weather-card-container {
   display: flex;
