@@ -851,19 +851,42 @@ function getRealityLogs() {
 }
 
 const FEEDBACK_SERVER_URL = 'https://genopars.ir/wp-content/mu-plugins/weather/weather_feedback.php';
+const GOOGLE_BRIDGE_URL = (typeof window !== 'undefined' && window.GOOGLE_BRIDGE_URL) || '';
 
 async function sendRealityLogToServer(entry) {
-  const url = (typeof window !== 'undefined' && window.FEEDBACK_SERVER_URL) || FEEDBACK_SERVER_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entry),
-      mode: 'cors'
-    });
-  } catch (e) {
-    // خطای اتصال به سرور نادیده گرفته می‌شود
+  const genoparsUrl = (typeof window !== 'undefined' && window.FEEDBACK_SERVER_URL) || FEEDBACK_SERVER_URL;
+  const googleUrl = (typeof window !== 'undefined' && window.GOOGLE_BRIDGE_URL) || GOOGLE_BRIDGE_URL;
+
+  // ۱. ارسال به سرور ژنوپارس با تایم‌اوت ۴ ثانیه‌ای (برای هندل کردن اتصال با فیلترشکن)
+  if (genoparsUrl) {
+    try {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 4000) : null;
+      await fetch(genoparsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+        mode: 'cors',
+        signal: controller ? controller.signal : undefined
+      });
+      if (timer) clearTimeout(timer);
+    } catch (e) {
+      // سرور ژنوپارس به دلیل فیلترشکن کاربر تایم‌اوت خورد
+    }
+  }
+
+  // ۲. ارسال به پل ابری گوگل (ضدتحریم و پایدار با وی‌پی‌ان + ثبت در شیت و ارسال به بله)
+  if (googleUrl) {
+    try {
+      await fetch(googleUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(entry),
+        mode: 'no-cors'
+      });
+    } catch (e) {
+      // خطا در پل گوگل نادیده گرفته می‌شود
+    }
   }
 }
 
