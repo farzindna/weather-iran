@@ -64,8 +64,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ذخیره امن
     file_put_contents($storageFile, json_encode($feedbacks, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
 
+    // ارسال اعلان به پیام‌رسان بله
+    sendNotificationToBale($data);
+
     echo json_encode(["status" => "ok", "message" => "مشاهده با موفقیت ذخیره شد.", "id" => $data['id'] ?? null], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+/**
+ * ارسال پیام به ربات پیام‌رسان بله
+ */
+function sendNotificationToBale($data) {
+    $token = defined('BALE_BOT_TOKEN') ? BALE_BOT_TOKEN : '57732307:A0QzU5nF6qL-KUPyE8ZgYUkoco2Kqb5ptHI';
+    $chatId = defined('BALE_CHAT_ID') ? BALE_CHAT_ID : '949834279';
+
+    if (empty($token) || empty($chatId)) return;
+
+    $city = $data['cityName'] ?? 'نامشخص';
+    $district = $data['userVerdict']['district'] ?? null;
+    $locationStr = $district ? "{$city} ({$district})" : $city;
+    
+    $date = $data['date'] ?? date('Y-m-d');
+    $time = $data['time'] ?? date('H:i');
+    
+    $realRain = $data['userVerdict']['realRain'] ?? 'ثبت نشده';
+    $realWind = $data['userVerdict']['realWind'] ?? 'ثبت نشده';
+    $notes = !empty($data['userVerdict']['notes']) ? $data['userVerdict']['notes'] : '';
+    
+    $models = !empty($data['userVerdict']['accurateModels']) && is_array($data['userVerdict']['accurateModels'])
+        ? implode('، ', $data['userVerdict']['accurateModels']) 
+        : 'انتخاب نشده';
+
+    $text = "🌦 گزارش میدانی جدید هوای ایران:\n\n"
+          . "📍 موقعیت: " . $locationStr . "\n"
+          . "⏰ زمان: " . $date . " ساعت " . $time . "\n"
+          . "🌧 وضعیت بارش: " . $realRain . "\n"
+          . "💨 وضعیت باد: " . $realWind . "\n"
+          . "🎯 مدل‌های دقیق‌تر: " . $models . "\n";
+
+    if (!empty($notes)) {
+        $text .= "📝 یادداشت: " . $notes . "\n";
+    }
+
+    $text .= "\n🌐 مشاهده کامل در پنل ژنوپارس:\nhttps://genopars.ir/wp-content/mu-plugins/weather/weather_feedback.php";
+
+    $payload = [
+        'chat_id' => $chatId,
+        'text' => $text
+    ];
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init("https://tapi.bale.ai/bot{$token}/sendMessage");
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        @curl_exec($ch);
+        @curl_close($ch);
+    }
 }
 
 // ۳. بازگرداندن داده‌ها به عنوان JSON خام برای پنل ادمین (GET ?format=json)
