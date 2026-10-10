@@ -90,19 +90,17 @@ function doPost(e) {
     // ۳. ارسال مستقیم به ربات تلگرام فرزین
     try {
       var tgToken = "8730697489:AAFmNLgb4lgXU9duDru0rrLPstVGbD9-65U";
-      var tgChatId = PropertiesService.getScriptProperties().getProperty("TG_CHAT_ID") || "949834279";
-      if (tgToken && tgChatId) {
-        var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
-        UrlFetchApp.fetch(tgUrl, {
-          method: "post",
-          contentType: "application/json",
-          payload: JSON.stringify({
-            chat_id: tgChatId,
-            text: msg
-          }),
-          muteHttpExceptions: true
-        });
-      }
+      var tgChatId = "106981593";
+      var tgUrl = "https://api.telegram.org/bot" + tgToken + "/sendMessage";
+      UrlFetchApp.fetch(tgUrl, {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          chat_id: tgChatId,
+          text: msg
+        }),
+        muteHttpExceptions: true
+      });
     } catch(tgErr) {}
 
     // ۴. ثبت اختیاری در شیت
