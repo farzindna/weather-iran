@@ -1172,13 +1172,13 @@ async function sendRealityLogToServer(entry) {
     }
   }
 
-  // ۲. ارسال به پل ابری گوگل (تلگرام همیشگی + بله در صورت در دسترس نبودن سرور ایران)
+  // ۲. ارسال به پل ابری گوگل — تنها جایی که توکن‌ها هستند؛ همیشه هم تلگرام و هم بله را می‌فرستد
   if (googleUrl) {
     try {
       await fetch(googleUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ ...entry, skipBale: genoparsSuccess }),
+        body: JSON.stringify(entry),
         mode: 'no-cors'
       });
     } catch (e) {

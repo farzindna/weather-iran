@@ -21,10 +21,11 @@ if (!is_dir($storageDir)) {
 $storageFile = $storageDir . '/weather_feedbacks.json';
 
 // ۲. عملیات حذف تکی یا پاکسازی کلی لاگ‌ها (کاملاً محافظت‌شده با کلید امنیتی)
-$adminKey = defined('WEATHER_ADMIN_KEY') ? WEATHER_ADMIN_KEY : (getenv('WEATHER_ADMIN_KEY') ?: 'farzin_weather_admin_9874');
+// کلید فقط از تنظیماتِ سرور؛ اگر تنظیم نشده باشد عملیاتِ مدیریتی کلاً بسته است (هیچ رمزی در کدِ عمومی نمی‌آید)
+$adminKey = defined('WEATHER_ADMIN_KEY') ? WEATHER_ADMIN_KEY : (getenv('WEATHER_ADMIN_KEY') ?: '');
 if (isset($_GET['action'])) {
     $providedKey = $_GET['key'] ?? '';
-    if ($providedKey !== $adminKey) {
+    if ($adminKey === '' || !hash_equals($adminKey, (string)$providedKey)) {
         http_response_code(403);
         die("⛔ خطای دسترسی: عملیات مدیریتی نیازمند کلید امنیتی (key) است.");
     }
@@ -92,8 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ذخیره امن
     file_put_contents($storageFile, json_encode($feedbacks, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
 
-    // ارسال اعلان به پیام‌رسان بله
-    sendNotificationToBale($data);
+    // اعلانِ بله از اینجا فرستاده نمی‌شود: همه‌ی توکن‌ها فقط در Script Propertiesِ پلِ گوگل‌اند
+    // و پلِ گوگل همیشه هم تلگرام و هم بله را می‌فرستد (۱۸ مهر ۱۴۰۵، بعد از revokeِ توکن‌ها)
 
     echo json_encode(["status" => "ok", "message" => "مشاهده با موفقیت ذخیره شد.", "id" => $data['id'] ?? null], JSON_UNESCAPED_UNICODE);
     exit;
