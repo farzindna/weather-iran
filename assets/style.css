@@ -962,6 +962,16 @@ body::before {
   gap: 16px;
 }
 
+.reality-motivate-banner {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(16, 185, 129, 0.12));
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #e2e8f0;
+}
+
 /* Reality Stream bar */
 .reality-stream-bar {
   display: flex;

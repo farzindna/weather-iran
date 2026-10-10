@@ -1439,6 +1439,9 @@ function renderRealityCard(day, location) {
         </div>
       </div>
       <div class="reality-body" style="display: none;">
+        <div class="reality-motivate-banner">
+          📢 <strong>رفیق اگه الان تو ${escapeHtml(location.name)} هستی:</strong> وضعیت واقعی هوا رو برامون ثبت کن! این فیدبک‌ها کمک می‌کنن هوش پیش‌بینی برای خودت و بقیه بچه‌های این منطقه دقیق‌تر بشه. 🌧️💨
+        </div>
         <div class="reality-stream-bar reality-slot-bar">
           <div class="stream-bar-header slot-bar-header">
             <span class="stream-bar-title slot-bar-title">🕒 مشاهداتِ ثبت‌شده‌ی امروز (جریان زمانی):</span>
@@ -2005,9 +2008,9 @@ function appendAssistantMessage(data) {
         saveBtn.textContent = `💾 ثبت مشاهده (ساعت ${nextTime})`;
       }
       if (statusMsg) {
-        statusMsg.textContent = `✅ مشاهده‌ی ساعت ${timeStr} در حافظه ذخیره شد`;
+        statusMsg.innerHTML = `🌟 <strong>دمت گرم رفیق!</strong> گزارش ساعت ${timeStr} ثبت شد. با این فیدبک واقعی، دقت پیش‌بینی ${escapeHtml(logEntry.city || 'این منطقه')} تقویت می‌شه و به نفع خودت و بقیه برمی‌گرده! ❤️`;
       }
-      showToast(`مشاهده‌ی ساعت ${timeStr} ثبت شد`);
+      showToast(`دمت گرم رفیق! فیدبک واقعی ساعت ${timeStr} ثبت شد 🌧️`);
     });
   });
 
@@ -2123,9 +2126,9 @@ function renderWelcomeMessage() {
       <div class="welcome-card">
         <div class="welcome-title">سلام رفیق! چطوری؟ 👋</div>
         <div class="welcome-desc">
-          دیگه لازم نیست با نقشه‌های شلوغ و لایه‌های گنگ سر و کله بزنی! هر شهری رو با هر تاریخی که می‌خوای بهم بگو؛ از فردا تا ماه آینده، خودم می‌پرم از ماهواره‌ها چک می‌کنم و بهت می‌گم بارون میاد، چتر لازمه یا هوا سرده.
+          دیگه لازم نیست با نقشه‌های شلوغ و لایه‌های گنگ سر و کله بزنی! <strong>بیش از ۳۶۰ شهر و شهرستان ایران</strong> رو بلدم؛ از فردا تا ۱۶ روز آینده (سقف علمی مدل‌های هواشناسی)، هر شهری رو به زبون خودمونی بپرسی بهت می‌گم بارون میاد، چتر لازمه یا هوا سرده.
         </div>
-        <div class="chips-title">پرسش‌های سریع و آماده (شهر یا منطقه رو انتخاب کن):</div>
+        <div class="chips-title">💡 دکمه‌های زیر چند نمونه‌ی آماده‌ان (می‌تونی هر شهر دیگه‌ای از کل ایران رو توی کادر پایین بنویسی):</div>
         <div class="city-tabs-grid">
           ${WELCOME_CITIES.map((c, idx) => `
             <button class="city-tab-btn ${idx === 0 ? 'is-active' : ''}" data-city-name="${c.name}">
@@ -2213,7 +2216,7 @@ async function handleUserSubmit(queryText) {
     // پاسخ به احوال‌پرسی
     if (parsed.type === 'greeting') {
       appendAssistantMessage({
-        text: 'سلام رفیق! 👋 چطوری؟ همه‌چی روبه‌راهه؟\nبگو ببینم هوای کدوم شهرو می‌خوای برات بسنجم؟ (از فردا تا ماه آینده هر جا بخوای آماده‌ام!)',
+        text: 'سلام رفیق! 👋 چطوری؟ همه‌چی روبه‌راهه؟\nبگو ببینم هوای کدوم شهرو می‌خوای برات بسنجم؟ (از فردا تا ۱۶ روز آینده هر جا بخوای آماده‌ام!)',
         cardsHtml: '',
         suggestions: ['امروز شرق تهران چطوره؟', '۵ تا ۹ مهر چالوس چطوره؟', 'یه هفته دیگه رامسر چطوره؟']
       });
@@ -2225,7 +2228,7 @@ async function handleUserSubmit(queryText) {
       appendAssistantMessage({
         text: 'نوکرتم رفیق! کاری نکردم. ❤️ هر وقت برنامه سفر داشتی یا خواستی بدونی فردا چی بپوشی، فقط صدام بزن!',
         cardsHtml: '',
-        suggestions: ['امروز شرق تهران چطوره؟', 'آخر هفته رامسر بارونیه؟', 'یک ماه آینده چالوس']
+        suggestions: ['امروز شرق تهران چطوره؟', 'آخر هفته رامسر بارونیه؟', '۳ روز آینده چالوس']
       });
       return;
     }
@@ -2235,7 +2238,7 @@ async function handleUserSubmit(queryText) {
       appendAssistantMessage({
         text: 'من رفیق و دستیار هوای ایرانم! 🌤️\nکارت اینه که هر سوالی داری به زبون خودمونی بپرسی؛ منم می‌پرم از ماهواره‌های اروپایی و آمریکایی دیتای واقعی بارون و دما رو برات می‌کشم بیرون تا با خیال راحت برنامه‌ریزی کنی.',
         cardsHtml: '',
-        suggestions: ['امروز شرق تهران چطوره؟', '۵ تا ۹ مهر چالوس چطوره؟', 'شیراز تو ماه آینده']
+        suggestions: ['امروز شرق تهران چطوره؟', '۵ تا ۹ مهر چالوس چطوره؟', '۱۰ روز آینده شیراز']
       });
       return;
     }

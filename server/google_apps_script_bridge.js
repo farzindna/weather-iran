@@ -102,16 +102,52 @@ function doPost(e) {
       });
     } catch(tgErr) {}
 
-    // ۴. ثبت اختیاری در شیت
+    // ۴. ثبت یکپارچه و دائمی در یک فایل واحد گوگل شیت (جلوگیری از ساخت فایل‌های متعدد)
     try {
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
-      if (ss) {
-        var sheet = ss.getActiveSheet();
-        if (sheet.getLastRow() === 0) {
-          sheet.appendRow(["شناسه", "زمان", "موقعیت", "بارش", "باد", "مدل‌ها", "یادداشت", "خام"]);
+      var scriptProps = PropertiesService.getScriptProperties();
+      var sheetId = scriptProps.getProperty("MAIN_SHEET_ID");
+      var ss = null;
+
+      if (sheetId) {
+        try {
+          ss = SpreadsheetApp.openById(sheetId);
+        } catch(openErr) {
+          ss = null;
         }
-        sheet.appendRow([data.id || "", dateTimeStr, locStr, realRain, realWind, modelsStr, notes, raw]);
       }
+
+      // اگر هنوز فایلی ساخته نشده بود، فقط یک بار می‌سازد و آیدی‌اش را ذخیره می‌کند
+      if (!ss) {
+        ss = SpreadsheetApp.create("هوای ایران — گزارش‌های میدانی کاربران");
+        scriptProps.setProperty("MAIN_SHEET_ID", ss.getId());
+      }
+
+      var sheet = ss.getSheets()[0];
+      if (sheet.getLastRow() === 0) {
+        sheet.appendRow([
+          "شناسه",
+          "زمان ثبت",
+          "موقعیت (شهر / منطقه)",
+          "وضعیت بارش",
+          "وضعیت باد",
+          "مدل‌های دقیق‌تر",
+          "یادداشت کاربر",
+          "داده خام JSON"
+        ]);
+        sheet.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#e2e8f0");
+        sheet.setFrozenRows(1);
+      }
+
+      sheet.appendRow([
+        data.id || ("ID_" + new Date().getTime()),
+        dateTimeStr,
+        locStr,
+        realRain,
+        realWind,
+        modelsStr,
+        notes,
+        raw
+      ]);
     } catch(sheetErr) {}
 
     return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
