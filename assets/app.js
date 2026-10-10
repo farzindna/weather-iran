@@ -850,7 +850,7 @@ function getRealityLogs() {
   }
 }
 
-const FEEDBACK_SERVER_URL = 'https://genopars.ir/weather/weather_feedback.php';
+const FEEDBACK_SERVER_URL = 'https://genopars.ir/wp-content/mu-plugins/weather/weather_feedback.php';
 
 async function sendRealityLogToServer(entry) {
   const url = (typeof window !== 'undefined' && window.FEEDBACK_SERVER_URL) || FEEDBACK_SERVER_URL;
