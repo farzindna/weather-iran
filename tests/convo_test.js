@@ -257,6 +257,17 @@ function check(name, cond, detail) {
     check('جریان ثبت آزاد زمانی و ساعتی (reality-stream-bar) در پنل وجود دارد', s.html.includes('reality-stream-bar') && s.html.includes('stream-chips-wrap'), '');
   }
 
+  console.log('\n== مناطق ۵گانه تهران ==');
+  {
+    await single('شمال تهران', 'شمال تهران فردا چطوره', { city: 'شمال تهران', n: 1 });
+    await single('غرب تهران', 'غرب تهران فردا چطوره', { city: 'غرب تهران', n: 1 });
+    await single('شرق تهران', 'شرق تهران فردا چطوره', { city: 'شرق تهران', n: 1 });
+    await single('جنوب تهران', 'جنوب تهران فردا چطوره', { city: 'جنوب تهران', n: 1 });
+    await single('مرکز تهران', 'مرکز تهران فردا چطوره', { city: 'مرکز تهران', n: 1 });
+    const { s } = await single('راستی‌آزمایی با جهت تهران', 'امروز تهران چطوره', { city: 'تهران', n: 1 });
+    check('پنل راستی‌آزمایی شامل انتخابگر ۵ جهت تهران است', s.html.includes('tehran-district-choices') && s.html.includes('data-val="شمال"') && s.html.includes('data-val="غرب"'), '');
+  }
+
   console.log('\n== بی‌ربط و احوال‌پرسی ==');
   await single('دلار', 'دلار فردا چنده', { kind: 'text', textHas: 'تخصصم' });
   await single('سلام', 'سلام', { kind: 'text', textHas: 'سلام رفیق' });

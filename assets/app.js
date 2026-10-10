@@ -103,7 +103,12 @@ const POPULAR_CITIES = [
   { name: 'ساری', lat: 36.5659, lon: 53.0586, province: 'مازندران' },
   { name: 'بابل', lat: 36.5419, lon: 52.6782, province: 'مازندران' },
   { name: 'آمل', lat: 36.4696, lon: 52.3507, province: 'مازندران' },
-  { name: 'تهران', lat: 35.6892, lon: 51.3890, province: 'تهران', aliases: ['تهرون'] },
+  { name: 'شمال تهران', lat: 35.8050, lon: 51.4250, province: 'تهران', aliases: ['شمال تهرون', 'شمیران', 'شمیرانات', 'تجریش', 'ولنجک', 'نیاوران'] },
+  { name: 'غرب تهران', lat: 35.7300, lon: 51.2500, province: 'تهران', aliases: ['غرب تهرون', 'چیتگر', 'صادقیه', 'شهرک غرب'] },
+  { name: 'شرق تهران', lat: 35.7350, lon: 51.5300, province: 'تهران', aliases: ['شرق تهرون', 'تهرانپارس', 'لویزان', 'سرخه حصار'] },
+  { name: 'جنوب تهران', lat: 35.5900, lon: 51.4200, province: 'تهران', aliases: ['جنوب تهرون', 'شهر ری', 'شهرری', 'نازی آباد'] },
+  { name: 'مرکز تهران', lat: 35.6892, lon: 51.3890, province: 'تهران', aliases: ['مرکز تهرون'] },
+  { name: 'تهران', lat: 35.6892, lon: 51.3890, province: 'تهران', aliases: ['تهرون', 'کل تهران'] },
   { name: 'کرج', lat: 35.8327, lon: 50.9915, province: 'البرز' },
   { name: 'مشهد', lat: 36.2972, lon: 59.6067, province: 'خراسان رضوی' },
   { name: 'اصفهان', lat: 32.6546, lon: 51.6680, province: 'اصفهان' },
@@ -931,6 +936,22 @@ function getRainDissent(d) {
   return null;
 }
 
+function isTehranArea(cityName) {
+  if (!cityName) return false;
+  return cityName === 'تهران' || cityName.includes('تهران') ||
+    ['شمیران', 'تجریش', 'ولنجک', 'نیاوران', 'چیتگر', 'صادقیه', 'شهرک غرب', 'تهرانپارس', 'لویزان', 'سرخه حصار', 'شهر ری', 'شهرری', 'نازی آباد'].includes(cityName);
+}
+
+function getTehranDistrict(cityName) {
+  if (!cityName) return null;
+  if (cityName.includes('شمال') || ['شمیران', 'تجریش', 'ولنجک', 'نیاوران'].includes(cityName)) return 'شمال';
+  if (cityName.includes('غرب') || ['چیتگر', 'صادقیه', 'شهرک غرب'].includes(cityName)) return 'غرب';
+  if (cityName.includes('شرق') || ['تهرانپارس', 'لویزان', 'سرخه حصار'].includes(cityName)) return 'شرق';
+  if (cityName.includes('جنوب') || ['شهر ری', 'شهرری', 'نازی آباد'].includes(cityName)) return 'جنوب';
+  if (cityName.includes('مرکز')) return 'مرکز';
+  return null;
+}
+
 function renderStreamChips(dayLogs) {
   if (!dayLogs || dayLogs.length === 0) {
     return `<span class="stream-empty-hint">هنوز مشاهده‌ای برای امروز ثبت نشده؛ وضعیتِ همین ساعت رو در فرم زیر ثبت کن.</span>`;
@@ -940,9 +961,10 @@ function renderStreamChips(dayLogs) {
     const winnerText = winners.length > 0 ? winners.join('، ') : (l.userVerdict?.accurateModels?.includes('none') ? 'هیچ‌کدام' : '—');
     const rainIcon = { dry: '🌂', light: '🌦️', heavy: '🌧️' }[l.userVerdict?.realRain] || '';
     const windIcon = { calm: '🍃', moderate: '💨', storm: '🌪️' }[l.userVerdict?.realWind] || '';
+    const districtBadge = l.district ? `<span class="stream-chip-district">(${escapeHtml(l.district)})</span>` : '';
     return `
       <div class="stream-chip" data-id="${l.id}">
-        <span class="stream-chip-time">⏰ ${l.timeStr || '—'}</span>
+        <span class="stream-chip-time">⏰ ${l.timeStr || '—'} ${districtBadge}</span>
         <span class="stream-chip-desc">${rainIcon} ${windIcon} 🏆 ${escapeHtml(winnerText)}</span>
         <button type="button" class="btn-del-stream-log" data-id="${l.id}" title="حذف این مشاهده">×</button>
       </div>
@@ -956,6 +978,32 @@ function renderRealityCard(day, location) {
   const dayLogs = allLogs.filter(l => l.dateIso === day.iso && l.city === location.name);
   const now = new Date();
   const curTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const isTehran = isTehranArea(location.name);
+  const detectedDistrict = getTehranDistrict(location.name);
+  let districtGroupHtml = '';
+  if (isTehran) {
+    const districts = [
+      { id: 'شمال', label: '🏔️ شمال' },
+      { id: 'غرب', label: '🌲 غرب' },
+      { id: 'مرکز', label: '🏙️ مرکز' },
+      { id: 'شرق', label: '🏢 شرق' },
+      { id: 'جنوب', label: '🏛️ جنوب' },
+    ];
+    const chipsHtml = districts.map(d => {
+      const activeClass = detectedDistrict === d.id ? 'active' : '';
+      return `<button type="button" class="tag-btn tag-district ${activeClass}" data-type="district" data-val="${d.id}">${d.label}</button>`;
+    }).join('');
+
+    districtGroupHtml = `
+      <div class="feedback-group tehran-district-group">
+        <span class="feedback-label">🧭 سمتِ شهر در تهران (اختیاری):</span>
+        <div class="tag-choices tehran-district-choices">
+          ${chipsHtml}
+        </div>
+      </div>
+    `;
+  }
 
   const modelBoxes = day.perModel.map(m => {
     const w = getWmoInfo(m.wmo);
@@ -1031,6 +1079,7 @@ function renderRealityCard(day, location) {
           ${modelBoxes}
         </div>
         <div class="reality-feedback-form">
+          ${districtGroupHtml}
           <div class="feedback-row">
             <div class="feedback-group">
               <span class="feedback-label">واقعیت بارش در این ساعت:</span>
@@ -1327,11 +1376,21 @@ function generateAssistantResponse(view, weatherResult, location, opts = {}) {
     </div>
   `;
 
+  let suggestions = rangeChips(opts.chipCity, days[0].date, days[days.length - 1].date);
+  if (isTehranArea(location.name)) {
+    const districts = ['شمال تهران', 'غرب تهران', 'مرکز تهران', 'شرق تهران', 'جنوب تهران'];
+    const otherDistricts = districts.filter(d => d !== location.name);
+    suggestions = [
+      ...suggestions,
+      ...otherDistricts.map(d => ({ label: `🧭 ${d}`, query: `امروز ${d}` }))
+    ];
+  }
+
   return {
     text: summaryText,
     cardsHtml,
     rawDays: days,
-    suggestions: rangeChips(opts.chipCity, days[0].date, days[days.length - 1].date)
+    suggestions
   };
 }
 
@@ -1521,7 +1580,7 @@ function appendAssistantMessage(data) {
       }
     });
 
-    ['rain', 'wind'].forEach(type => {
+    ['rain', 'wind', 'district'].forEach(type => {
       const tags = card.querySelectorAll(`.tag-btn[data-type="${type}"]`);
       tags.forEach(t => {
         t.addEventListener('click', () => {
@@ -1539,9 +1598,10 @@ function appendAssistantMessage(data) {
         : [...card.querySelectorAll('.model-box.is-selected')].map(c => c.dataset.model);
       const activeRain = card.querySelector('.tag-btn[data-type="rain"].active')?.dataset.val || '';
       const activeWind = card.querySelector('.tag-btn[data-type="wind"].active')?.dataset.val || '';
+      const activeDistrict = card.querySelector('.tag-btn[data-type="district"].active')?.dataset.val || getTehranDistrict(city) || '';
       const notes = noteInput ? noteInput.value.trim() : '';
 
-      if (activeModels.length === 0 && !activeRain && !activeWind && !notes) {
+      if (activeModels.length === 0 && !activeRain && !activeWind && !notes && !activeDistrict) {
         showToast('حداقل یک مدل یا وضعیت باران/باد را مشخص کنید');
         return;
       }
@@ -1553,6 +1613,7 @@ function appendAssistantMessage(data) {
         id: `${dateIso}_${city}_${Date.now()}`,
         dateIso,
         city,
+        district: activeDistrict || null,
         timestamp: Date.now(),
         timeStr,
         ensemble: targetDay ? {
@@ -1568,6 +1629,7 @@ function appendAssistantMessage(data) {
           accurateModels: activeModels,
           realRain: activeRain,
           realWind: activeWind,
+          district: activeDistrict || null,
           notes
         }
       };
@@ -1618,9 +1680,13 @@ function renderWelcomeMessage() {
         </div>
         <div class="chips-title">پرسش‌های سریع و آماده (فقط روشون بزن):</div>
         <div class="chips-grid">
-          <button class="chip-btn" data-query="فردا تهران چطوره؟">🏙️ فردا تهران چطوره؟</button>
+          <button class="chip-btn" data-query="امروز شمال تهران چطوره؟">🏔️ شمال تهران (تجریش)</button>
+          <button class="chip-btn" data-query="امروز غرب تهران چطوره؟">🌲 غرب تهران (چیتگر)</button>
+          <button class="chip-btn" data-query="امروز مرکز تهران چطوره؟">🏙️ مرکز تهران</button>
+          <button class="chip-btn" data-query="امروز شرق تهران چطوره؟">🏢 شرق تهران (تهرانپارس)</button>
+          <button class="chip-btn" data-query="امروز جنوب تهران چطوره؟">🏛️ جنوب تهران (ری)</button>
+          <button class="chip-btn" data-query="فردا کل تهران چطوره؟">🏙️ فردا کل تهران</button>
           <button class="chip-btn" data-query="یه هفته دیگه کوهدشت چطوره؟">🏔️ یه هفته دیگه کوهدشت؟</button>
-          <button class="chip-btn" data-query="سه روز نوشهر چطوره؟">🌊 سه روز نوشهر چطوره؟</button>
           <button class="chip-btn" data-query="پس‌فردا چالوس بارون داریم؟">🏖️ پس‌فردا چالوس بارونیه؟</button>
         </div>
       </div>
@@ -1919,6 +1985,7 @@ function renderModalContent() {
               </div>
             </div>
             <div class="log-entry-tags">
+              ${l.district ? `<span class="log-tag district">🧭 ${escapeHtml(l.district)} تهران</span>` : ''}
               ${rainLabel ? `<span class="log-tag">${rainLabel}</span>` : ''}
               ${windLabel ? `<span class="log-tag">${windLabel}</span>` : ''}
             </div>

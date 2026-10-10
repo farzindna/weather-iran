@@ -1298,6 +1298,45 @@ body::before {
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
 }
 
+/* Tehran District Selection in Reality Card */
+.tehran-district-group {
+  margin-bottom: 4px;
+}
+
+.tehran-district-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-btn.tag-district {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 14px;
+}
+
+.tag-btn.tag-district.active {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: #34d399;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.stream-chip-district {
+  font-size: 11px;
+  color: #34d399;
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.log-tag.district {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  font-weight: 600;
+}
+
 .feedback-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
