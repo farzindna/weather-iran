@@ -1009,10 +1009,10 @@ function renderRealityCard(day, location) {
         </div>
         <div class="reality-toggle-btn-wrap">
           <span class="reality-toggle-hint"></span>
-          <button type="button" class="btn-reality-toggle" tabindex="-1" aria-label="باز و بسته کردن">▼</button>
+          <span class="btn-reality-toggle" aria-hidden="true">▼</span>
         </div>
       </div>
-      <div class="reality-body">
+      <div class="reality-body" style="display: none;">
         <div class="reality-stream-bar reality-slot-bar">
           <div class="stream-bar-header slot-bar-header">
             <span class="stream-bar-title slot-bar-title">🕒 مشاهداتِ ثبت‌شده‌ی امروز (جریان زمانی):</span>
@@ -1439,6 +1439,10 @@ function appendAssistantMessage(data) {
     const header = card.querySelector('.reality-header');
     const toggleCollapse = () => {
       const isNowCollapsed = card.classList.toggle('is-collapsed');
+      const body = card.querySelector('.reality-body');
+      if (body) {
+        body.style.display = isNowCollapsed ? 'none' : 'flex';
+      }
       if (header) {
         header.setAttribute('aria-expanded', !isNowCollapsed);
       }

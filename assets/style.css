@@ -781,6 +781,8 @@ body::before {
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .reality-header:hover {
@@ -846,7 +848,6 @@ body::before {
   background: transparent;
   border: none;
   color: var(--muted);
-  cursor: pointer;
   font-size: 11px;
   transition: transform 0.25s ease, color 0.2s ease;
   padding: 0;
@@ -872,7 +873,7 @@ body::before {
 }
 
 .reality-card.is-collapsed .reality-body {
-  display: none;
+  display: none !important;
 }
 
 .reality-body {
