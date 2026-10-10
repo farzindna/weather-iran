@@ -850,6 +850,23 @@ function getRealityLogs() {
   }
 }
 
+const FEEDBACK_SERVER_URL = '';
+
+async function sendRealityLogToServer(entry) {
+  const url = (typeof window !== 'undefined' && window.FEEDBACK_SERVER_URL) || FEEDBACK_SERVER_URL;
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+      mode: 'cors'
+    });
+  } catch (e) {
+    // خطای اتصال به سرور نادیده گرفته می‌شود
+  }
+}
+
 function saveRealityLog(entry) {
   try {
     if (typeof localStorage === 'undefined') return;
@@ -861,6 +878,7 @@ function saveRealityLog(entry) {
       logs.unshift(entry);
     }
     localStorage.setItem('weather_reality_logs', JSON.stringify(logs));
+    sendRealityLogToServer(entry);
   } catch (e) {
     console.error('Error saving reality log:', e);
   }
